@@ -1,0 +1,46 @@
+name: xbot
+description: "X-Bot 实时视觉识别 App：人脸检测/表情/手势/姿势/身份识别。"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # 摄像头实时取流（YUV420）
+  camera: ^0.12.0+1
+  # 运行时权限请求（相机）
+  permission_handler: ^12.0.3
+  # 文件目录（注册库 JSON 持久化、日志）
+  path_provider: ^2.1.2
+  # 屏幕常亮（运行 App 时保持屏幕不熄灭）
+  wakelock_plus: ^1.2.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  # 自动生成 Android/iOS 启动图标。
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/logo.png"
+  # 安卓自适应图标背景（logo 已是深蓝实底，用同色填充）。
+  adaptive_icon_background: "#0A1A1F"
+  adaptive_icon_foreground: "assets/images/logo.png"
+  # 圆角裁剪（iOS 会自动处理 mask）。
+  remove_alpha_ios: true
+
+flutter:
+  uses-material-design: true
+  assets:
+    - android/app/src/main/assets/
+    # 加载页 logo 与背景图。
+    - assets/images/logo.png
+    # - assets/images/loading_background.png
