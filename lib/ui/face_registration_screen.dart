@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../camera/camera_controller_service.dart';
 import '../detection/models.dart';
 import '../recognition/face_recognition_store.dart';
+import '../utils/preview_layout_size.dart';
 
 /// 录入步骤枚举。
 enum RegistrationStep {
@@ -623,13 +624,16 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
         ),
       );
     }
-    // 与主预览页保持一致：直接用 previewSize（不交换宽高），由 FittedBox
-    // cover 按真实宽高比缩放并裁切，避免画面被拉伸变形。
+    // layoutSize 与检测 img 坐标系一致，避免预览与叠加层错位。
+    final layoutSize = previewLayoutSize(
+      cameraPreviewSize: controller.value.previewSize,
+      detectionImageSize: _currentFrame.imageSize,
+    );
     return FittedBox(
       fit: BoxFit.cover,
       alignment: Alignment.center,
       child: SizedBox.fromSize(
-        size: controller.value.previewSize,
+        size: layoutSize != Size.zero ? layoutSize : controller.value.previewSize,
         child: CameraPreview(controller),
       ),
     );

@@ -86,13 +86,14 @@ class DebugPanel extends StatelessWidget {
     );
   }
 
-  /// 尺寸对比：用于调试横屏坐标对齐问题。
+  /// 尺寸对比：prv 为预览 layout 尺寸，应与 img 一致。
   List<Widget> _sizeLines() {
     final img = frame.imageSize;
+    final prv = previewSize ?? Size.zero;
     return [
       Text('  img: ${img.width.toStringAsFixed(0)}x${img.height.toStringAsFixed(0)}'),
       if (previewSize != null)
-        Text('  prv: ${previewSize!.width.toStringAsFixed(0)}x${previewSize!.height.toStringAsFixed(0)}'),
+        Text('  prv: ${prv.width.toStringAsFixed(0)}x${prv.height.toStringAsFixed(0)}'),
     ];
   }
 
