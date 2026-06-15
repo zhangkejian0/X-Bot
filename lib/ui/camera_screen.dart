@@ -11,6 +11,7 @@ import '../recognition/face_recognizer.dart';
 import 'debug_panel.dart';
 import 'loading_screen.dart';
 import 'overlay_painter.dart';
+import 'settings_screen.dart';
 
 /// 主屏幕：加载页 → 横屏全屏摄像头预览 + 检测叠加层 + 角落调试面板。
 class CameraScreen extends StatefulWidget {
@@ -188,18 +189,18 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
   Future<void> _registerCurrentFace() async {
     if (_store == null) return;
     if (_frame.faces.isEmpty) {
-      _toast('没有检测到人脸');
+      _toast('没有检测到人脸，请正对摄像头');
       return;
     }
     final face = _frame.faces.first;
     if (face.embedding.isEmpty) {
-      _toast(_recognitionReady ? 'embedding 为空' : '身份模型未加载，无法注册');
+      _toast(_recognitionReady ? '特征提取失败' : '身份模型未加载，无法录入');
       return;
     }
     final name = await _promptName();
     if (name == null || name.trim().isEmpty) return;
     await _store!.register(name.trim(), face.embedding);
-    _toast('已注册：$name');
+    _toast('记住 $name 啦～下次见一定认得你！');
   }
 
   Future<String?> _promptName() {
@@ -207,18 +208,18 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('注册人脸'),
+        title: const Text('想让我怎么称呼你？'),
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(hintText: '输入姓名'),
+          decoration: const InputDecoration(hintText: '你的名字或昵称'),
           onSubmitted: (v) => Navigator.of(ctx).pop(v),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('取消')),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(controller.text),
-            child: const Text('确定'),
+            child: const Text('记住我'),
           ),
         ],
       ),
@@ -230,9 +231,26 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Widget _buildActionButton(IconData icon, String label) {
+  /// 打开设置页面。
+  void _openSettings() {
+    if (_store == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SettingsScreen(
+          store: _store!,
+          currentFrame: _frame,
+          recognitionReady: _recognitionReady,
+          recognitionError: _recognitionError,
+          cameraService: _cameraService,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionButton(IconData icon, String label, {VoidCallback? onTap}) {
     return GestureDetector(
-      onTap: () {
+      onTap: onTap ?? () {
         _toast('$label 功能开发中...');
       },
       child: Column(
@@ -396,7 +414,11 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                           const SizedBox(height: 24),
                           _buildActionButton(Icons.trending_up, '成长'),
                           const SizedBox(height: 24),
-                          _buildActionButton(Icons.settings_outlined, '设置'),
+                          _buildActionButton(
+                            Icons.settings_outlined,
+                            '设置',
+                            onTap: _openSettings,
+                          ),
                         ],
                       ),
                     ),

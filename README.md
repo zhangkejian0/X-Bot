@@ -1,6 +1,8 @@
 # X-Bot
 
-基于 Flutter + MediaPipe 的实时视觉识别 App（Android / iOS）。
+AI 陪伴桌面机器人（Android / iOS）。
+
+基于 Flutter + MediaPipe，为机器人赋予实时视觉感知能力。
 
 ## 功能
 

@@ -39,6 +39,9 @@ class CameraControllerService {
   /// 最新一帧检测结果，供 UI 读取。
   DetectionFrame latest = DetectionFrame.empty;
 
+  /// 外部设置的帧回调，用于在不重新初始化的情况下切换回调。
+  void Function()? onFrameCallback;
+
   /// 请求相机权限，返回是否获得授权。
   Future<bool> requestPermission() async {
     final status = await Permission.camera.request();
@@ -112,6 +115,7 @@ class CameraControllerService {
         mirror: isFront, // 前摄镜像，使检测图像与预览一致。
       );
       onFrame();
+      onFrameCallback?.call();
     } catch (error) {
       debugPrint('检测失败: $error');
       onError('检测失败：$error');

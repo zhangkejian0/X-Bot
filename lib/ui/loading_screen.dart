@@ -197,7 +197,7 @@ class _LoadingScreenState extends State<LoadingScreen>
         ),
         const SizedBox(height: 4),
         Text(
-          '实时视觉识别',
+          'AI 陪伴桌面机器人',
           style: TextStyle(
             fontSize: 13,
             color: Colors.white.withValues(alpha: 0.6),

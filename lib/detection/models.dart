@@ -9,6 +9,35 @@ import 'dart:ui';
 
 import 'expression_rules.dart';
 
+/// 头部姿态角（yaw、pitch、roll）。
+class HeadPose {
+  const HeadPose({
+    this.yaw = 0,
+    this.pitch = 0,
+    this.roll = 0,
+  });
+
+  /// 偏航角（绕 Y 轴），正值向右转，负值向左转。
+  final double yaw;
+
+  /// 俯仰角（绕 X 轴），正值抬头，负值低头。
+  final double pitch;
+
+  /// 翻滚角（绕 Z 轴），正值向右歪头，负值向左歪头。
+  final double roll;
+
+  factory HeadPose.fromMap(Map<dynamic, dynamic> map) {
+    return HeadPose(
+      yaw: ((map['yaw'] as num?) ?? 0).toDouble(),
+      pitch: ((map['pitch'] as num?) ?? 0).toDouble(),
+      roll: ((map['roll'] as num?) ?? 0).toDouble(),
+    );
+  }
+
+  @override
+  String toString() => 'HeadPose(yaw: ${yaw.toStringAsFixed(1)}°, pitch: ${pitch.toStringAsFixed(1)}°, roll: ${roll.toStringAsFixed(1)}°)';
+}
+
 /// 单个人脸的检测结果。
 class FaceDetection {
   FaceDetection({
@@ -17,6 +46,7 @@ class FaceDetection {
     required this.expression,
     required this.landmarks,
     this.embedding = const [],
+    this.headPose = const HeadPose(),
   });
 
   /// 归一化人脸框 (x, y, w, h ∈ 0..1)。
@@ -33,6 +63,9 @@ class FaceDetection {
 
   /// 身份识别 128 维特征向量（原生端对齐+TFLite 推理得到）。无模型时为空。
   final List<double> embedding;
+
+  /// 头部姿态角（yaw、pitch、roll）。
+  final HeadPose headPose;
 
   factory FaceDetection.fromMap(Map<dynamic, dynamic> map) {
     final bb = (map['boundingBox'] as Map<dynamic, dynamic>?) ?? const {};
@@ -59,6 +92,9 @@ class FaceDetection {
         .map((e) => e.toDouble())
         .toList(growable: false);
 
+    final rawHeadPose = (map['headPose'] as Map<dynamic, dynamic>?) ?? const {};
+    final headPose = HeadPose.fromMap(rawHeadPose);
+
     return FaceDetection(
       boundingBox: Rect.fromLTWH(
         ((bb['x'] as num?) ?? 0).toDouble(),
@@ -70,6 +106,7 @@ class FaceDetection {
       expression: expression,
       landmarks: landmarks,
       embedding: embedding,
+      headPose: headPose,
     );
   }
 }

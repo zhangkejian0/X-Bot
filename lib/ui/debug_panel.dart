@@ -60,7 +60,7 @@ class DebugPanel extends StatelessWidget {
               child: ElevatedButton.icon(
                 onPressed: onRegister,
                 icon: const Icon(Icons.person_add_alt, size: 16),
-                label: Text('注册当前人脸 (库 $galleryCount)'),
+                label: Text('记住现在的我 ($galleryCount)'),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   minimumSize: const Size(0, 30),

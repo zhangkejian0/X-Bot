@@ -3,7 +3,16 @@ import 'dart:io';
 
 /// 一个已注册的人脸身份。
 class RegisteredFace {
-  RegisteredFace({required this.id, required this.name, required this.embedding});
+  RegisteredFace({
+    required this.id,
+    required this.name,
+    required this.embedding,
+    this.gender,
+    this.birthday,
+    this.age,
+    this.relationship,
+    this.notes,
+  });
 
   /// 唯一 ID（时间戳生成的简单 ID）。
   final String id;
@@ -12,7 +21,31 @@ class RegisteredFace {
   /// 128 维特征向量。
   final List<double> embedding;
 
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'embedding': embedding};
+  /// 性别。
+  final String? gender;
+
+  /// 生日。
+  final String? birthday;
+
+  /// 年龄。
+  final int? age;
+
+  /// 关系标签（家人/朋友/主人/伙伴等）。
+  final String? relationship;
+
+  /// 备注/喜好。
+  final String? notes;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'embedding': embedding,
+        'gender': gender,
+        'birthday': birthday,
+        'age': age,
+        'relationship': relationship,
+        'notes': notes,
+      };
 
   factory RegisteredFace.fromJson(Map<String, dynamic> json) => RegisteredFace(
         id: json['id'] as String,
@@ -20,6 +53,11 @@ class RegisteredFace {
         embedding: (json['embedding'] as List<dynamic>)
             .map((e) => (e as num).toDouble())
             .toList(growable: false),
+        gender: json['gender'] as String?,
+        birthday: json['birthday'] as String?,
+        age: json['age'] as int?,
+        relationship: json['relationship'] as String?,
+        notes: json['notes'] as String?,
       );
 }
 
@@ -55,11 +93,24 @@ class FaceRecognitionStore {
   }
 
   /// 注册一个新身份，返回生成的记录。
-  Future<RegisteredFace> register(String name, List<double> embedding) async {
+  Future<RegisteredFace> register(
+    String name,
+    List<double> embedding, {
+    String? gender,
+    String? birthday,
+    int? age,
+    String? relationship,
+    String? notes,
+  }) async {
     final face = RegisteredFace(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       name: name,
       embedding: embedding,
+      gender: gender,
+      birthday: birthday,
+      age: age,
+      relationship: relationship,
+      notes: notes,
     );
     _faces.add(face);
     await _persist();

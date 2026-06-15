@@ -46,6 +46,7 @@ class MediaPipeDetector(context: Context) {
             .setRunningMode(RunningMode.IMAGE)
             .setNumFaces(MAX_FACES)
             .setOutputFaceBlendshapes(true)
+            .setOutputFacialTransformationMatrixes(true)
             .build()
         return FaceLandmarker.createFromOptions(appContext, options).also { faceLandmarker = it }
     }
@@ -163,6 +164,14 @@ private fun FaceLandmarkerResult.toFaceMaps(
             cat.categoryName() to cat.score()
         }
 
+        // facialTransformationMatrixes() 返回 Optional<List<FloatArray>>，每个 FloatArray 是 4x4 矩阵（16 个 float）。
+        val matrices = this.facialTransformationMatrixes().orElse(emptyList())
+        val headPose = if (i < matrices.size) {
+            extractHeadPose(matrices[i])
+        } else {
+            mapOf("yaw" to 0f, "pitch" to 0f, "roll" to 0f)
+        }
+
         // 身份识别：用关键点对齐 + TFLite 推理。
         val embedding = recognizer.recognize(bitmap, landmarks)
 
@@ -171,7 +180,8 @@ private fun FaceLandmarkerResult.toFaceMaps(
                 "boundingBox" to bbox,
                 "blendshapes" to blendMap,
                 "landmarks" to landmarkMaps,
-                "embedding" to embedding
+                "embedding" to embedding,
+                "headPose" to headPose
             )
         )
     }
@@ -223,4 +233,46 @@ private fun PoseLandmarkerResult.toPoseMaps(): List<Map<String, Any>> {
         )
     }
     return maps
+}
+
+/**
+ * 从 4x4 变换矩阵中提取头部姿态角（yaw、pitch、roll）。
+ *
+ * 矩阵是列主序的 16 个 float：
+ * [m00, m01, m02, m03, m10, m11, m12, m13, m20, m21, m22, m23, m30, m31, m32, m33]
+ *
+ * 旋转矩阵 R：
+ * | m00 m01 m02 |
+ * | m10 m11 m12 |
+ * | m20 m21 m22 |
+ *
+ * yaw = atan2(m20, m00)  (绕 Y 轴)
+ * pitch = -asin(m21)     (绕 X 轴)
+ * roll = atan2(m01, m11) (绕 Z 轴)
+ */
+private fun extractHeadPose(matrix: FloatArray): Map<String, Float> {
+    if (matrix.size < 16) {
+        return mapOf("yaw" to 0f, "pitch" to 0f, "roll" to 0f)
+    }
+
+    // 提取旋转矩阵元素（列主序）。
+    val m00 = matrix[0]; val m01 = matrix[4]; val m02 = matrix[8]
+    val m10 = matrix[1]; val m11 = matrix[5]; val m12 = matrix[9]
+    val m20 = matrix[2]; val m21 = matrix[6]; val m22 = matrix[10]
+
+    // 计算欧拉角（弧度）。
+    val pitch = -Math.asin(m21.toDouble().coerceIn(-1.0, 1.0)).toFloat()
+    val yaw = Math.atan2(m20.toDouble(), m00.toDouble()).toFloat()
+    val roll = Math.atan2(m01.toDouble(), m11.toDouble()).toFloat()
+
+    // 转换为角度。
+    val pitchDeg = Math.toDegrees(pitch.toDouble()).toFloat()
+    val yawDeg = Math.toDegrees(yaw.toDouble()).toFloat()
+    val rollDeg = Math.toDegrees(roll.toDouble()).toFloat()
+
+    return mapOf(
+        "yaw" to yawDeg,
+        "pitch" to pitchDeg,
+        "roll" to rollDeg
+    )
 }

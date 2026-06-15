@@ -69,6 +69,7 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
     options.runningMode = .image
     options.numFaces = 4
     options.outputFaceBlendshapes = true
+    options.outputFacialTransformationMatrixes = true
     faceLandmarker = try? FaceLandmarker(options: options)
     return faceLandmarker
   }
@@ -146,6 +147,7 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
   private func faceMaps(from result: FaceLandmarkerResult, image: UIImage) -> [[String: Any]] {
     var maps: [[String: Any]] = []
     let blendshapeLists = result.faceBlendshapes() ?? []
+    let transformationMatrixes = result.facialTransformationMatrixes ?? []
 
     for (i, landmarks) in result.faceLandmarks.enumerated() {
       if landmarks.isEmpty { continue }
@@ -168,6 +170,15 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
           blendMap[cat.categoryName] = cat.score.doubleValue
         }
       }
+
+      // 提取头部姿态。
+      let headPose: [String: Float]
+      if i < transformationMatrixes.count {
+        headPose = extractHeadPose(matrix: transformationMatrixes[i])
+      } else {
+        headPose = ["yaw": 0, "pitch": 0, "roll": 0]
+      }
+
       // 身份识别。
       let embedding = recognizeFace(image: image, landmarks: result.faceLandmarks[i])
 
@@ -175,7 +186,8 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
         "boundingBox": bbox,
         "blendshapes": blendMap,
         "landmarks": landmarkMaps,
-        "embedding": embedding
+        "embedding": embedding,
+        "headPose": headPose
       ])
     }
     return maps
@@ -310,6 +322,46 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
   }
 
   // MARK: - CameraImage → UIImage
+
+  /// 从 4x4 变换矩阵中提取头部姿态角（yaw、pitch、roll）。
+  ///
+  /// 矩阵是列主序的 16 个 float：
+  /// [m00, m01, m02, m03, m10, m11, m12, m13, m20, m21, m22, m23, m30, m31, m32, m33]
+  ///
+  /// 旋转矩阵 R：
+  /// | m00 m01 m02 |
+  /// | m10 m11 m12 |
+  /// | m20 m21 m22 |
+  ///
+  /// yaw = atan2(m20, m00)  (绕 Y 轴)
+  /// pitch = -asin(m21)     (绕 X 轴)
+  /// roll = atan2(m01, m11) (绕 Z 轴)
+  private func extractHeadPose(matrix: [Float]) -> [String: Float] {
+    guard matrix.count >= 16 else {
+      return ["yaw": 0, "pitch": 0, "roll": 0]
+    }
+
+    // 提取旋转矩阵元素（列主序）。
+    let m00 = matrix[0]; let m01 = matrix[4]; let m02 = matrix[8]
+    let m10 = matrix[1]; let m11 = matrix[5]; let m12 = matrix[9]
+    let m20 = matrix[2]; let m21 = matrix[6]; let m22 = matrix[10]
+
+    // 计算欧拉角（弧度）。
+    let pitch = -asin(max(-1, min(1, m21)))
+    let yaw = atan2(m20, m00)
+    let roll = atan2(m01, m11)
+
+    // 转换为角度。
+    let pitchDeg = pitch * 180 / .pi
+    let yawDeg = yaw * 180 / .pi
+    let rollDeg = roll * 180 / .pi
+
+    return [
+      "yaw": yawDeg,
+      "pitch": pitchDeg,
+      "roll": rollDeg
+    ]
+  }
 
   /// Flutter CameraImage (YUV420) → UIImage。
   /// 旋转后返回正立图像。
