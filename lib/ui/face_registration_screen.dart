@@ -16,6 +16,21 @@ enum RegistrationStep {
   failed, // 采集失败
 }
 
+/// 候选帧数据类。
+class _CandidateEmbedding {
+  final List<double> embedding;
+  final double yaw;
+  final double faceSize;
+  final DateTime timestamp;
+  
+  _CandidateEmbedding({
+    required this.embedding,
+    required this.yaw,
+    required this.faceSize,
+    required this.timestamp,
+  });
+}
+
 /// iOS Face ID 风格的人脸录入页面（横屏）。
 ///
 /// 左侧：圆形摄像头取景框 + 放射状刻度进度环（随采集角度逐段点亮）。
@@ -72,6 +87,12 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
   /// 第一次转头采集到的偏航方向符号（-1 / 1），用于要求第二次转向相反方向。
   /// 不直接区分左右，避免前置摄像头镜像导致的 yaw 符号不确定问题。
   double _firstSideSign = 0;
+
+  // 多帧择优相关状态。
+  final Map<RegistrationStep, List<_CandidateEmbedding>> _candidateEmbeddings = {};
+  DateTime? _collectionWindowStart;
+  static const Duration _collectionWindow = Duration(milliseconds: 800);
+  static const int _maxCandidates = 5;
 
   // 动画控制器。
   late final AnimationController _pulseController; // 采集成功脉冲
@@ -160,6 +181,8 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
 
     final face = _currentFrame.faces.first;
     final yaw = face.headPose.yaw;
+    final bbox = face.boundingBox;
+    final faceSize = bbox.width;
 
     bool shouldCollect = false;
     switch (_step) {
@@ -184,13 +207,72 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
     }
 
     if (shouldCollect && face.embedding.isNotEmpty) {
-      _collectEmbedding(face.embedding);
+      // 如果已经在采集窗口中，继续收集候选帧。
+      if (_collectionWindowStart != null) {
+        _candidateEmbeddings[_step]!.add(_CandidateEmbedding(
+          embedding: List.from(face.embedding),
+          yaw: yaw,
+          faceSize: faceSize,
+          timestamp: DateTime.now(),
+        ));
+        // 检查是否达到最大候选数或窗口结束。
+        if (_candidateEmbeddings[_step]!.length >= _maxCandidates ||
+            DateTime.now().difference(_collectionWindowStart!) > _collectionWindow) {
+          _selectBestEmbedding();
+        }
+      } else {
+        // 开始新的采集窗口。
+        _collectionWindowStart = DateTime.now();
+        _candidateEmbeddings[_step] = [];
+        _candidateEmbeddings[_step]!.add(_CandidateEmbedding(
+          embedding: List.from(face.embedding),
+          yaw: yaw,
+          faceSize: faceSize,
+          timestamp: DateTime.now(),
+        ));
+      }
     }
 
     if (_stepStartTime != null &&
         DateTime.now().difference(_stepStartTime!) > _stepTimeout) {
       setState(() => _step = RegistrationStep.failed);
     }
+  }
+
+  void _selectBestEmbedding() {
+    final candidates = _candidateEmbeddings[_step];
+    if (candidates == null || candidates.isEmpty) return;
+    // 质量评估：姿态接近目标 + 人脸大小 + 时间衰减。
+    _CandidateEmbedding best = candidates.first;
+    double bestScore = 0;
+    for (final candidate in candidates) {
+      double score = 0;
+      // 姿态评分（越接近目标越好）。
+      switch (_step) {
+        case RegistrationStep.front:
+          score += (1 - candidate.yaw.abs() / 30) * 40; // 正脸：yaw越小越好
+          break;
+        case RegistrationStep.left:
+        case RegistrationStep.right:
+          score += (candidate.yaw.abs() / 30) * 30; // 侧脸：yaw越大越好
+          break;
+        default:
+          break;
+      }
+      // 人脸大小评分（适中大小最好）。
+      score += (1 - (candidate.faceSize - 0.3).abs() / 0.3) * 30;
+      // 时间衰减（越新的帧越好）。
+      final age = DateTime.now().difference(candidate.timestamp).inMilliseconds;
+      score += (1 - age / 800) * 30;
+      if (score > bestScore) {
+        bestScore = score;
+        best = candidate;
+      }
+    }
+    // 使用最优帧。
+    _collectEmbedding(best.embedding);
+    _collectionWindowStart = null;
+    _candidateEmbeddings[_step] = [];
   }
 
   void _collectEmbedding(List<double> embedding) {
@@ -203,6 +285,9 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
     Future.delayed(const Duration(milliseconds: 450), () {
       if (!mounted) return;
       _isProcessing = false;
+      // 清理采集窗口状态。
+      _collectionWindowStart = null;
+      _candidateEmbeddings.remove(_step);
       setState(() {
         switch (_step) {
           case RegistrationStep.front:
@@ -243,6 +328,8 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
       _collectedEmbeddings.clear();
       _isProcessing = false;
       _firstSideSign = 0;
+      _collectionWindowStart = null;
+      _candidateEmbeddings.clear();
     });
   }
 
@@ -264,6 +351,13 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
       frontEmb.length,
       (i) => (frontEmb[i] + leftEmb[i] + rightEmb[i]) / 3,
     );
+    // L2归一化：平均后重新归一化到单位球面
+    final norm = sqrt(avgEmbedding.fold<double>(0, (s, v) => s + v * v));
+    if (norm > 1e-6) {
+      for (var i = 0; i < avgEmbedding.length; i++) {
+        avgEmbedding[i] /= norm;
+      }
+    }
 
     try {
       await widget.store.register(
