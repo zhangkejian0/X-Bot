@@ -421,15 +421,14 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
   Widget _buildScanPane() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 预留文字 + 按钮区域的高度，圆框用「剩余高度」与宽度共同约束，
-        // 避免在矮屏横屏下底部溢出。
-        const reserved = 176.0;
+        // 只需保留少量padding，不需要为文字预留空间
+        const reserved = 20.0;
         final available = constraints.maxHeight - reserved;
         final circle = max(
           120.0,
           min(
             min(available, constraints.maxWidth * 0.82),
-            300.0,
+            320.0,
           ),
         );
         return Padding(
@@ -438,31 +437,6 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _buildFaceCircle(circle),
-              const SizedBox(height: 20),
-              Text(
-                _instructionTitle,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 19,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              SizedBox(
-                width: 280,
-                child: Text(
-                  _instructionSubtitle,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: _label, fontSize: 13, height: 1.35),
-                ),
-              ),
-              const SizedBox(height: 16),
-              _buildScanAction(),
             ],
           ),
         );
@@ -633,8 +607,8 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
     Color textColor = Colors.white,
   }) {
     return SizedBox(
-      height: 46,
-      width: 200,
+      height: 40,
+      width: 180,
       child: CupertinoButton(
         padding: EdgeInsets.zero,
         borderRadius: BorderRadius.circular(23),
@@ -662,62 +636,343 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
       child: Column(
         children: [
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _sectionHeader('个人信息'),
-                  _formCard([
-                    _textRow(
-                      label: '姓名',
-                      controller: _nameController,
-                      hint: '想让我怎么称呼你',
-                      onChanged: (_) => setState(() {}),
-                    ),
-                    _pickerRow(
-                      label: '性别',
-                      value: _gender,
-                      placeholder: '请选择',
-                      onTap: _pickGender,
-                    ),
-                    _pickerRow(
-                      label: '生日',
-                      value: _birthday != null
-                          ? '${_birthday!.year}年${_birthday!.month}月${_birthday!.day}日'
-                          : null,
-                      placeholder: '请选择',
-                      onTap: _pickBirthday,
-                    ),
-                    _textRow(
-                      label: '年龄',
-                      controller: _ageController,
-                      hint: '可选',
-                      keyboardType: TextInputType.number,
-                    ),
-                    _pickerRow(
-                      label: '关系',
-                      value: _relationship,
-                      placeholder: '请选择',
-                      onTap: _pickRelationship,
-                    ),
-                  ]),
-                  const SizedBox(height: 22),
-                  _sectionHeader('备注 / 喜好'),
-                  _formCard([
-                    _textRow(
-                      label: null,
-                      controller: _notesController,
-                      hint: '记录一些关于 TA 的信息…',
-                      maxLines: 3,
-                    ),
-                  ]),
-                ],
+            child: _buildFormContent(),
+          ),
+          _buildBottomBar(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFormContent() {
+    switch (_step) {
+      case RegistrationStep.ready:
+        return _buildReadyContent();
+      case RegistrationStep.front:
+      case RegistrationStep.left:
+      case RegistrationStep.right:
+        return _buildScanningContent();
+      case RegistrationStep.complete:
+        return _buildCompleteContent();
+      case RegistrationStep.failed:
+        return _buildFailedContent();
+    }
+  }
+
+  Widget _buildBottomBar() {
+    // 只有完成步骤才显示底部栏
+    switch (_step) {
+      case RegistrationStep.ready:
+      case RegistrationStep.front:
+      case RegistrationStep.left:
+      case RegistrationStep.right:
+      case RegistrationStep.failed:
+        return const SizedBox.shrink();
+      case RegistrationStep.complete:
+        return _buildCompleteBottomBar();
+    }
+  }
+
+  // ===== 右侧：动态内容方法 =====
+
+  Widget _buildReadyContent() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(height: 40),
+          Text(
+            _instructionTitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: 280,
+            child: Text(
+              _instructionSubtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: _label, fontSize: 15, height: 1.4),
+            ),
+          ),
+          const SizedBox(height: 32),
+          _pillButton(
+            label: '开始录入',
+            color: _blue,
+            onPressed: _startRegistration,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScanningContent() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(height: 40),
+          Text(
+            _instructionTitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: 280,
+            child: Text(
+              _instructionSubtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: _label, fontSize: 14, height: 1.4),
+            ),
+          ),
+          const SizedBox(height: 24),
+          _buildStepDots(),
+          const SizedBox(height: 32),
+          _pillButton(
+            label: '重新录入',
+            color: _cardRow,
+            textColor: Colors.white,
+            onPressed: _resetRegistration,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompleteContent() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionHeader('个人信息'),
+          _formCard([
+            _textRow(
+              label: '姓名',
+              controller: _nameController,
+              hint: '想让我怎么称呼你',
+              onChanged: (_) => setState(() {}),
+            ),
+            _pickerRow(
+              label: '性别',
+              value: _gender,
+              placeholder: '请选择',
+              onTap: _pickGender,
+            ),
+            _pickerRow(
+              label: '生日',
+              value: _birthday != null
+                  ? '${_birthday!.year}年${_birthday!.month}月${_birthday!.day}日'
+                  : null,
+              placeholder: '请选择',
+              onTap: _pickBirthday,
+            ),
+            _textRow(
+              label: '年龄',
+              controller: _ageController,
+              hint: '可选',
+              keyboardType: TextInputType.number,
+            ),
+            _pickerRow(
+              label: '关系',
+              value: _relationship,
+              placeholder: '请选择',
+              onTap: _pickRelationship,
+            ),
+          ]),
+          const SizedBox(height: 22),
+          _sectionHeader('备注 / 喜好'),
+          _formCard([
+            _textRow(
+              label: null,
+              controller: _notesController,
+              hint: '记录一些关于 TA 的信息…',
+              maxLines: 3,
+            ),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFailedContent() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(height: 40),
+          Text(
+            _instructionTitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: _red,
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: 280,
+            child: Text(
+              _instructionSubtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: _label, fontSize: 15, height: 1.4),
+            ),
+          ),
+          const SizedBox(height: 32),
+          _pillButton(
+            label: '重试',
+            color: _orange,
+            onPressed: _resetRegistration,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReadyBottomBar() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: _separator, width: 0.5)),
+      ),
+      child: SizedBox(
+        height: 48,
+        width: double.infinity,
+        child: CupertinoButton(
+          padding: EdgeInsets.zero,
+          borderRadius: BorderRadius.circular(12),
+          color: _cardRow,
+          disabledColor: _cardRow,
+          onPressed: null,
+          child: const Text(
+            '请先完成面部录入',
+            style: TextStyle(
+              color: _label,
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScanningBottomBar() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: _separator, width: 0.5)),
+      ),
+      child: SizedBox(
+        height: 48,
+        width: double.infinity,
+        child: CupertinoButton(
+          padding: EdgeInsets.zero,
+          borderRadius: BorderRadius.circular(12),
+          color: _cardRow,
+          onPressed: _resetRegistration,
+          child: const Text(
+            '重新录入',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompleteBottomBar() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: _separator, width: 0.5)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: SizedBox(
+              height: 48,
+              child: CupertinoButton(
+                padding: EdgeInsets.zero,
+                borderRadius: BorderRadius.circular(12),
+                color: _cardRow,
+                onPressed: _resetRegistration,
+                child: const Text(
+                  '重新录入',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
           ),
-          _buildSaveBar(),
+          const SizedBox(width: 12),
+          Expanded(
+            child: SizedBox(
+              height: 48,
+              child: CupertinoButton(
+                padding: EdgeInsets.zero,
+                borderRadius: BorderRadius.circular(12),
+                color: _blue,
+                disabledColor: _cardRow,
+                onPressed: _canSave ? _saveRegistration : null,
+                child: Text(
+                  '保存',
+                  style: TextStyle(
+                    color: _canSave ? Colors.white : _label,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFailedBottomBar() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: _separator, width: 0.5)),
+      ),
+      child: SizedBox(
+        height: 48,
+        width: double.infinity,
+        child: CupertinoButton(
+          padding: EdgeInsets.zero,
+          borderRadius: BorderRadius.circular(12),
+          color: _orange,
+          onPressed: _resetRegistration,
+          child: const Text(
+            '重试',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -833,33 +1088,6 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
     );
   }
 
-  Widget _buildSaveBar() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
-      decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: _separator, width: 0.5)),
-      ),
-      child: SizedBox(
-        height: 48,
-        width: double.infinity,
-        child: CupertinoButton(
-          padding: EdgeInsets.zero,
-          borderRadius: BorderRadius.circular(12),
-          color: _blue,
-          disabledColor: _cardRow,
-          onPressed: _canSave ? _saveRegistration : null,
-          child: Text(
-            _step == RegistrationStep.complete ? '保存' : '请先完成面部录入',
-            style: TextStyle(
-              color: _canSave ? Colors.white : _label,
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
   // ===========================================================================
   // iOS 选择器
