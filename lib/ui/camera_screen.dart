@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import '../camera/camera_controller_service.dart';
 import '../detection/detection_bridge.dart';
+import '../detection/expression_rules.dart';
 import '../detection/models.dart';
 import '../recognition/face_recognition_store.dart';
 import '../recognition/face_recognizer.dart';
@@ -21,7 +22,8 @@ class CameraScreen extends StatefulWidget {
   State<CameraScreen> createState() => _CameraScreenState();
 }
 
-class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver {
+class _CameraScreenState extends State<CameraScreen>
+    with WidgetsBindingObserver {
   final CameraControllerService _cameraService = CameraControllerService();
   final FaceRecognizer _recognizer = FaceRecognizer();
   FaceRecognitionStore? _store;
@@ -86,57 +88,56 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
 
   /// 加载页的有序任务：摄像头 → 等待首帧 → 查询身份模型。
   List<LoadingTask> get _loadingTasks => [
-        LoadingTask(
-          label: '初始化摄像头...',
-          action: () async {
-            final dir = await getApplicationDocumentsDirectory();
-            _store = FaceRecognitionStore(File('${dir.path}/face_db.json'));
-            await _store!.load();
-            _firstFrameCompleter = Completer<void>();
-            await _cameraService.initialize(
-              onFrame: _onDetectionFrame,
-              onError: (msg) {
-                if (mounted) setState(() => _errorMessage = msg);
-              },
-            );
+    LoadingTask(
+      label: '初始化摄像头...',
+      action: () async {
+        final dir = await getApplicationDocumentsDirectory();
+        _store = FaceRecognitionStore(File('${dir.path}/face_db.json'));
+        await _store!.load();
+        _firstFrameCompleter = Completer<void>();
+        await _cameraService.initialize(
+          onFrame: _onDetectionFrame,
+          onError: (msg) {
+            if (mounted) setState(() => _errorMessage = msg);
           },
-        ),
-        LoadingTask(
-          label: '加载检测模型...',
-          action: () async {
-            // 等待原生端跑完第一帧检测（MediaPipe 模型已加载），最多等 8 秒。
-            await _firstFrameCompleter?.future.timeout(
-              const Duration(seconds: 8),
-              onTimeout: () {},
-            );
-          },
-        ),
-        LoadingTask(
-          label: '稳定摄像头预览...',
-          action: () async {
-            // 轮询 previewSize，连续 3 次相同才算稳定，避免渲染方向未稳定
-            // 时显示变形画面。最多等待 3 秒。
-            await _waitForPreviewStable();
-          },
-        ),
-        LoadingTask(
-          label: '加载身份模型...',
-          action: () async {
-            try {
-              final status = await DetectionBridge().getRecognitionStatus().timeout(
-                const Duration(seconds: 5),
-                onTimeout: () => const {'ready': false, 'error': 'timeout'},
-              );
-              _recognitionReady = status['ready'] as bool? ?? false;
-              _recognitionError = status['error'] as String? ?? '';
-            } catch (_) {/* 忽略 */}
-          },
-        ),
-        LoadingTask(
-          label: '即将就绪',
-          action: () async {},
-        ),
-      ];
+        );
+      },
+    ),
+    LoadingTask(
+      label: '加载检测模型...',
+      action: () async {
+        // 等待原生端跑完第一帧检测（MediaPipe 模型已加载），最多等 8 秒。
+        await _firstFrameCompleter?.future.timeout(
+          const Duration(seconds: 8),
+          onTimeout: () {},
+        );
+      },
+    ),
+    LoadingTask(
+      label: '稳定摄像头预览...',
+      action: () async {
+        // 轮询 previewSize，连续 3 次相同才算稳定，避免渲染方向未稳定
+        // 时显示变形画面。最多等待 3 秒。
+        await _waitForPreviewStable();
+      },
+    ),
+    LoadingTask(
+      label: '加载身份模型...',
+      action: () async {
+        try {
+          final status = await DetectionBridge().getRecognitionStatus().timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => const {'ready': false, 'error': 'timeout'},
+          );
+          _recognitionReady = status['ready'] as bool? ?? false;
+          _recognitionError = status['error'] as String? ?? '';
+        } catch (_) {
+          /* 忽略 */
+        }
+      },
+    ),
+    LoadingTask(label: '即将就绪', action: () async {}),
+  ];
 
   /// 轮询 previewSize，连续 3 次（每次间隔 150ms）读取到相同的值才认为预览稳定，
   /// 稳定后再额外等待 2 秒，确保渲染方向完全就绪，避免加载完成后画面变形。
@@ -177,7 +178,10 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     final rawIdentities = <RecognitionResult>[];
     for (var i = 0; i < frame.faces.length; i++) {
       rawIdentities.add(
-        _recognizer.recognize(frame.faces[i].embedding, _store?.faces ?? const []),
+        _recognizer.recognize(
+          frame.faces[i].embedding,
+          _store?.faces ?? const [],
+        ),
       );
     }
     // 滑动窗口投票。
@@ -293,7 +297,10 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
           onSubmitted: (v) => Navigator.of(ctx).pop(v),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(controller.text),
             child: const Text('记住我'),
@@ -325,11 +332,17 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     );
   }
 
-  Widget _buildActionButton(IconData icon, String label, {VoidCallback? onTap}) {
+  Widget _buildActionButton(
+    IconData icon,
+    String label, {
+    VoidCallback? onTap,
+  }) {
     return GestureDetector(
-      onTap: onTap ?? () {
-        _toast('$label 功能开发中...');
-      },
+      onTap:
+          onTap ??
+          () {
+            _toast('$label 功能开发中...');
+          },
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -413,7 +426,8 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                     children: [
                       // 调试开关按钮。
                       GestureDetector(
-                        onTap: () => setState(() => _showDebugPanel = !_showDebugPanel),
+                        onTap: () =>
+                            setState(() => _showDebugPanel = !_showDebugPanel),
                         child: Container(
                           margin: const EdgeInsets.all(8),
                           padding: const EdgeInsets.all(8),
@@ -422,8 +436,12 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Icon(
-                            _showDebugPanel ? Icons.bug_report : Icons.bug_report_outlined,
-                            color: _showDebugPanel ? Colors.tealAccent : Colors.white,
+                            _showDebugPanel
+                                ? Icons.bug_report
+                                : Icons.bug_report_outlined,
+                            color: _showDebugPanel
+                                ? Colors.tealAccent
+                                : Colors.white,
                             size: 24,
                           ),
                         ),
@@ -436,7 +454,8 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                           fps: _fps,
                           galleryCount: _store?.faces.length ?? 0,
                           onRegister: _registerCurrentFace,
-                          previewSize: (ctrl != null && ctrl.value.isInitialized)
+                          previewSize:
+                              (ctrl != null && ctrl.value.isInitialized)
                               ? ctrl.value.previewSize
                               : null,
                           recognitionReady: _recognitionReady,
@@ -460,7 +479,10 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(_errorMessage!, style: const TextStyle(color: Colors.white)),
+                        Text(
+                          _errorMessage!,
+                          style: const TextStyle(color: Colors.white),
+                        ),
                         const SizedBox(height: 12),
                         ElevatedButton(
                           onPressed: () => setState(() => _appReady = false),
@@ -479,7 +501,10 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                 child: SafeArea(
                   child: Center(
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 16,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.6),
                         borderRadius: BorderRadius.circular(30),
