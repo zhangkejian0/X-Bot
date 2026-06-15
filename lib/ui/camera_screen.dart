@@ -117,7 +117,10 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
           label: '加载身份模型...',
           action: () async {
             try {
-              final status = await DetectionBridge().getRecognitionStatus();
+              final status = await DetectionBridge().getRecognitionStatus().timeout(
+                const Duration(seconds: 5),
+                onTimeout: () => const {'ready': false, 'error': 'timeout'},
+              );
               _recognitionReady = status['ready'] as bool? ?? false;
               _recognitionError = status['error'] as String? ?? '';
             } catch (_) {/* 忽略 */}

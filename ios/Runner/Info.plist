@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>X-Bot 需要使用摄像头进行人脸、手势和姿势识别。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>X-Bot 不录制音频，此权限仅因摄像头采集需要声明。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -53,10 +57,6 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
-	<key>NSCameraUsageDescription</key>
-	<string>X-Bot 需要使用摄像头进行人脸、手势和姿势识别。</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>X-Bot 不录制音频，此权限仅因摄像头采集需要声明。</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationLandscapeLeft</string>

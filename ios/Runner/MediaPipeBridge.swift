@@ -13,7 +13,7 @@ import UIKit
 ///
 /// 注意：本文件在 Windows 上无法编译验证，需在 Mac 上 `pod install` 后用
 /// Xcode 构建。模拟器不支持 TFLite，需真机调试。
-class MediaPipeBridge: NSObject, FlutterStreamHandler {
+class MediaPipeBridge: NSObject {
 
   private let channel: FlutterMethodChannel
   private let queue = DispatchQueue(label: "xbot.detection", qos: .userInitiated)
@@ -24,13 +24,18 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
 
   // TFLite 身份识别。
   private var faceRecognizerInterpreter: Interpreter?
+  private var recognitionLoadError: String?
 
   init(binaryMessenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(name: "xbot/detection", binaryMessenger: binaryMessenger)
     super.init()
     channel.setMethodCallHandler { [weak self] call, result in
-      guard let self = self else { return }
-      if call.method == "detect" {
+      guard let self = self else {
+        result(FlutterError(code: "BRIDGE_DEALLOCATED", message: "MediaPipeBridge unavailable.", details: nil))
+        return
+      }
+      switch call.method {
+      case "detect":
         guard let args = call.arguments as? [String: Any] else {
           result(FlutterError(code: "BAD_ARGS", message: "detect expects a map.", details: nil))
           return
@@ -45,17 +50,19 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
             }
           }
         }
-      } else {
+      case "getRecognitionStatus":
+        // 触发身份模型懒加载后返回状态；与 detect 共用串行队列，避免并发初始化。
+        self.queue.async {
+          _ = self.recognizerInterpreter
+          let ready = self.faceRecognizerInterpreter != nil
+          let error = self.recognitionLoadError ?? ""
+          DispatchQueue.main.async {
+            result(["ready": ready, "error": error])
+          }
+        }
+      default:
         result(FlutterMethodNotImplemented)
       }
-    }
-
-    // 预热模型。
-    queue.async { [weak self] in
-      _ = self?.faceLandmarkerInstance
-      _ = self?.gestureRecognizerInstance
-      _ = self?.poseLandmarkerInstance
-      _ = self?.recognizerInterpreter
     }
   }
 
@@ -98,12 +105,25 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
 
   private var recognizerInterpreter: Interpreter? {
     if faceRecognizerInterpreter != nil { return faceRecognizerInterpreter }
-    guard let path = Bundle.main.path(forResource: "mobilefacenet", ofType: "tflite") else { return nil }
+#if targetEnvironment(simulator)
+    recognitionLoadError = "TFLite not supported on iOS Simulator"
+    return nil
+#endif
+    guard let path = Bundle.main.path(forResource: "mobilefacenet", ofType: "tflite") else {
+      recognitionLoadError = "mobilefacenet.tflite not found in bundle"
+      return nil
+    }
     var options = Interpreter.Options()
     options.threadCount = 2
-    faceRecognizerInterpreter = try? Interpreter(modelPath: path, options: options)
-    if let interp = faceRecognizerInterpreter {
-      try? interp.resizeInput(at: 0, to: [1, 112, 112, 3])
+    do {
+      let interp = try Interpreter(modelPath: path, options: options)
+      try interp.resizeInput(at: 0, to: Tensor.Shape([1, 112, 112, 3]))
+      try interp.allocateTensors()
+      faceRecognizerInterpreter = interp
+      recognitionLoadError = nil
+    } catch {
+      recognitionLoadError = "\(error)"
+      faceRecognizerInterpreter = nil
     }
     return faceRecognizerInterpreter
   }
@@ -146,16 +166,16 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
 
   private func faceMaps(from result: FaceLandmarkerResult, image: UIImage) -> [[String: Any]] {
     var maps: [[String: Any]] = []
-    let blendshapeLists = result.faceBlendshapes() ?? []
-    let transformationMatrixes = result.facialTransformationMatrixes ?? []
+    let blendshapeLists = result.faceBlendshapes
+    let transformationMatrixes = result.facialTransformationMatrixes
 
     for (i, landmarks) in result.faceLandmarks.enumerated() {
       if landmarks.isEmpty { continue }
       var minX: Float = 1, minY: Float = 1, maxX: Float = 0, maxY: Float = 0
       var landmarkMaps: [[String: Float]] = []
       for lm in landmarks {
-        let x = lm.x.floatValue
-        let y = lm.y.floatValue
+        let x = lm.x
+        let y = lm.y
         minX = min(minX, x); minY = min(minY, y)
         maxX = max(maxX, x); maxY = max(maxY, y)
         landmarkMaps.append(["x": x, "y": y])
@@ -166,8 +186,8 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
       ]
       var blendMap: [String: Double] = [:]
       if i < blendshapeLists.count {
-        for cat in blendshapeLists[i] {
-          blendMap[cat.categoryName] = cat.score.doubleValue
+        for cat in blendshapeLists[i].categories {
+          blendMap[cat.categoryName ?? ""] = Double(cat.score)
         }
       }
 
@@ -197,18 +217,18 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
     var maps: [[String: Any]] = []
     for (i, landmarks) in result.landmarks.enumerated() {
       let landmarkMaps = landmarks.map { lm -> [String: Float] in
-        ["x": lm.x.floatValue, "y": lm.y.floatValue]
+        ["x": lm.x, "y": lm.y]
       }
       let gesture = result.gestures[i].first
       let handedness = result.handedness[i].first
       maps.append([
         "gesture": [
           "name": gesture?.categoryName ?? "Unknown",
-          "score": gesture?.score.floatValue ?? 0
+          "score": gesture?.score ?? 0
         ] as [String: Any],
         "handedness": [
           "name": handedness?.categoryName ?? "Right",
-          "score": handedness?.score.floatValue ?? 0
+          "score": handedness?.score ?? 0
         ] as [String: Any],
         "landmarks": landmarkMaps
       ])
@@ -220,7 +240,7 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
     var maps: [[String: Any]] = []
     for landmarks in result.landmarks {
       let landmarkMaps = landmarks.map { lm -> [String: Float] in
-        ["x": lm.x.floatValue, "y": lm.y.floatValue]
+        ["x": lm.x, "y": lm.y]
       }
       maps.append([
         "landmarks": landmarkMaps,
@@ -260,9 +280,11 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
     }
 
     do {
-      try interp.resizeInput(at: 0, to: [1, size, size, 3])
-      let inputTensor = try Tensor(data: Data(copyingBufferOf: input))
-      try interp.invoke(options: nil, tensors: [inputTensor], error: ())
+      try interp.resizeInput(at: 0, to: Tensor.Shape([1, size, size, 3]))
+      try interp.allocateTensors()
+      let inputData = input.withUnsafeBufferPointer { Data(buffer: $0) }
+      try interp.copy(inputData, toInputAt: 0)
+      try interp.invoke()
       let output = try interp.output(at: 0)
       let raw = output.data.withUnsafeBytes { ptr -> [Float] in
         let count = output.data.count / MemoryLayout<Float>.size
@@ -286,10 +308,10 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
     let h = Double(image.size.height)
     let rightInner = landmarks[133]
     let leftInner = landmarks[362]
-    let rxEye = rightInner.x.doubleValue * w
-    let ryEye = rightInner.y.doubleValue * h
-    let lxEye = leftInner.x.doubleValue * w
-    let lyEye = leftInner.y.doubleValue * h
+    let rxEye = Double(rightInner.x) * w
+    let ryEye = Double(rightInner.y) * h
+    let lxEye = Double(leftInner.x) * w
+    let lyEye = Double(leftInner.y) * h
     let angle = atan2(lyEye - ryEye, lxEye - rxEye) * 180 / .pi
 
     guard let cgImage = image.cgImage else { return nil }
@@ -336,15 +358,17 @@ class MediaPipeBridge: NSObject, FlutterStreamHandler {
   /// yaw = atan2(m20, m00)  (绕 Y 轴)
   /// pitch = -asin(m21)     (绕 X 轴)
   /// roll = atan2(m01, m11) (绕 Z 轴)
-  private func extractHeadPose(matrix: [Float]) -> [String: Float] {
-    guard matrix.count >= 16 else {
+  private func extractHeadPose(matrix: TransformMatrix) -> [String: Float] {
+    guard matrix.rows >= 3, matrix.columns >= 3 else {
       return ["yaw": 0, "pitch": 0, "roll": 0]
     }
 
-    // 提取旋转矩阵元素（列主序）。
-    let m00 = matrix[0]; let m01 = matrix[4]; let m02 = matrix[8]
-    let m10 = matrix[1]; let m11 = matrix[5]; let m12 = matrix[9]
-    let m20 = matrix[2]; let m21 = matrix[6]; let m22 = matrix[10]
+    let m00 = matrix.value(atRow: 0, column: 0)
+    let m01 = matrix.value(atRow: 0, column: 1)
+    let m10 = matrix.value(atRow: 1, column: 0)
+    let m11 = matrix.value(atRow: 1, column: 1)
+    let m20 = matrix.value(atRow: 2, column: 0)
+    let m21 = matrix.value(atRow: 2, column: 1)
 
     // 计算欧拉角（弧度）。
     let pitch = -asin(max(-1, min(1, m21)))

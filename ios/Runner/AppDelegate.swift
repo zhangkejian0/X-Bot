@@ -3,6 +3,10 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+  /// 必须强引用，否则 MediaPipeBridge 初始化后会被释放，MethodChannel 回调里
+  /// weak self 为 nil 且不会调用 result，Dart 端 invokeMethod 将永久挂起。
+  private var mediaPipeBridge: MediaPipeBridge?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -13,9 +17,8 @@ import UIKit
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
 
-    // 注册检测通道。scene-based 架构下，engine 由 FlutterSceneDelegate 持有，
-    // 此处获取 binaryMessenger 并交给 MediaPipeBridge。
-    guard let engine = engineBridge.pluginRegistry as? FlutterEngine else { return }
-    let _ = MediaPipeBridge(binaryMessenger: engine.binaryMessenger)
+    // Scene 架构下通过 applicationRegistrar 获取 messenger（勿强转 FlutterEngine）。
+    let messenger = engineBridge.applicationRegistrar.messenger()
+    mediaPipeBridge = MediaPipeBridge(binaryMessenger: messenger)
   }
 }
