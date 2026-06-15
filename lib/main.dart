@@ -5,9 +5,10 @@ import 'app.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 强制横屏（固定方向，避免 sensor 翻转导致启动闪烁）。
+  // 允许横屏左右两个方向（180° 旋转）。
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
   ]);
   // 全屏沉浸式。
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);

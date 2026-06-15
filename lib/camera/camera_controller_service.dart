@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../detection/detection_bridge.dart';
@@ -53,6 +54,8 @@ class CameraControllerService {
     required void Function() onFrame,
     required void Function(String) onError,
   }) async {
+    await dispose();
+
     final granted = await requestPermission();
     if (!granted) {
       onError('未获得相机权限');
@@ -99,9 +102,9 @@ class CameraControllerService {
     _lastDetectionTime = now;
 
     try {
-      // App 固定锁定 landscapeLeft，因此设备方向恒为 90°，无需依赖动态
-      // deviceOrientation（它在摄像头刚启动时可能还未稳定，导致首帧旋转角算错）。
-      const deviceDeg = 90;
+      final deviceOrient =
+          _controller?.value.deviceOrientation ?? DeviceOrientation.landscapeLeft;
+      final deviceDeg = _deviceOrientationDegrees(deviceOrient);
       final sensorOrient = _description?.sensorOrientation ?? 0;
       final isFront = isFrontCamera;
       // 后摄：rotation = (sensorOrient - deviceDeg + 360) % 360
@@ -152,10 +155,32 @@ class CameraControllerService {
   Future<void> dispose() async {
     await _streamSub?.cancel();
     _streamSub = null;
-    await _controller?.stopImageStream();
-    await _controller?.dispose();
+    final ctrl = _controller;
     _controller = null;
-    // 释放屏幕常亮。
+    if (ctrl == null) return;
+    try {
+      if (ctrl.value.isInitialized) {
+        if (ctrl.value.isStreamingImages) {
+          await ctrl.stopImageStream();
+        }
+        await ctrl.dispose();
+      }
+    } catch (e) {
+      debugPrint('摄像头释放异常: $e');
+    }
     WakelockPlus.disable();
+  }
+
+  static int _deviceOrientationDegrees(DeviceOrientation orientation) {
+    switch (orientation) {
+      case DeviceOrientation.portraitUp:
+        return 0;
+      case DeviceOrientation.portraitDown:
+        return 180;
+      case DeviceOrientation.landscapeLeft:
+        return 90;
+      case DeviceOrientation.landscapeRight:
+        return 270;
+    }
   }
 }

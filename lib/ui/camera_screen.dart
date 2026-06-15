@@ -8,6 +8,7 @@ import '../detection/detection_bridge.dart';
 import '../detection/models.dart';
 import '../recognition/face_recognition_store.dart';
 import '../recognition/face_recognizer.dart';
+import '../utils/preview_layout_size.dart';
 import 'debug_panel.dart';
 import 'loading_screen.dart';
 import 'overlay_painter.dart';
@@ -52,6 +53,9 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
   /// 用于「等待首帧检测数据」的 Completer。
   Completer<void>? _firstFrameCompleter;
 
+  /// 每次从后台恢复时递增，强制 LoadingScreen 重新执行加载任务。
+  int _loadingGeneration = 0;
+
   @override
   void initState() {
     super.initState();
@@ -67,13 +71,16 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive) {
+    // iOS 弹相机权限、控制中心等会短暂进入 inactive，不能在此释放摄像头。
+    if (state == AppLifecycleState.paused) {
       _cameraService.dispose();
     } else if (state == AppLifecycleState.resumed && _appReady) {
       // 从后台恢复时重新走加载流程。
       setState(() {
         _appReady = false;
         _previewStable = false;
+        _firstFrameCompleter = null;
+        _loadingGeneration++;
       });
     }
   }
@@ -142,8 +149,11 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     final deadline = DateTime.now().add(const Duration(seconds: 5));
     while (DateTime.now().isBefore(deadline)) {
       await Future.delayed(interval);
-      final current = _cameraService.controller?.value.previewSize;
-      if (current != null && current == lastSize) {
+      final current = previewLayoutSize(
+        cameraPreviewSize: _cameraService.controller?.value.previewSize,
+        detectionImageSize: _frame.imageSize,
+      );
+      if (current != Size.zero && current == lastSize) {
         stableCount++;
         if (stableCount >= 3) break;
       } else {
@@ -157,7 +167,18 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
   }
 
   void _onLoadingComplete() {
-    if (mounted) setState(() => _appReady = true);
+    if (!mounted) return;
+    final ctrl = _cameraService.controller;
+    if (ctrl == null || !ctrl.value.isInitialized) {
+      // 加载过程中摄像头被系统打断（如权限弹窗期间误释放），重新加载。
+      setState(() {
+        _previewStable = false;
+        _firstFrameCompleter = null;
+        _loadingGeneration++;
+      });
+      return;
+    }
+    setState(() => _appReady = true);
   }
 
   void _onDetectionFrame() {
@@ -275,6 +296,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     // 加载阶段：显示加载页。
     if (!_appReady) {
       return LoadingScreen(
+        key: ValueKey(_loadingGeneration),
         tasks: _loadingTasks,
         onComplete: _onLoadingComplete,
         // 可替换背景图：把图片放到 assets/images/ 并取消下行注释。
@@ -295,18 +317,21 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
           final screenSize = Size(constraints.maxWidth, constraints.maxHeight);
           final hasImage = _frame.imageSize != Size.zero;
           final ctrl = controller;
+          final layoutSize = previewLayoutSize(
+            cameraPreviewSize: ctrl?.value.previewSize,
+            detectionImageSize: _frame.imageSize,
+          );
 
           return Stack(
             fit: StackFit.expand,
             children: [
-              // 1. 摄像头预览（全屏铺满）。仅在预览方向稳定后才渲染，
-              //    避免加载完成后首帧画面变形。
-              if (ctrl != null && ctrl.value.isInitialized && _previewStable)
+              // 1. 摄像头预览（全屏铺满）。layoutSize 与 img 一致，叠加层才能对齐。
+              if (ctrl != null && ctrl.value.isInitialized && _previewStable && layoutSize != Size.zero)
                 Positioned.fill(
                   child: FittedBox(
                     fit: BoxFit.cover,
                     child: SizedBox.fromSize(
-                      size: ctrl.value.previewSize,
+                      size: layoutSize,
                       child: CameraPreview(ctrl),
                     ),
                   ),
@@ -362,9 +387,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                           fps: _fps,
                           galleryCount: _store?.faces.length ?? 0,
                           onRegister: _registerCurrentFace,
-                          previewSize: (ctrl != null && ctrl.value.isInitialized)
-                              ? ctrl.value.previewSize
-                              : null,
+                          previewSize: layoutSize != Size.zero ? layoutSize : null,
                           recognitionReady: _recognitionReady,
                           recognitionError: _recognitionError,
                         ),
