@@ -7,13 +7,13 @@ import 'face_recognition_store.dart';
 /// - 最近距离 < [threshold] 且大于 [minDistanceMargin] 优于次近，则判定为该身份。
 /// - 否则返回「未知」。
 class FaceRecognizer {
-  FaceRecognizer({this.threshold = 0.9});
+  FaceRecognizer({this.threshold = 1.0});
 
   /// 判定为同一身份的距离上限。MobileFaceNet 典型值 0.8~1.0，留宽松一些便于现场调试。
   double threshold;
 
   /// 最近与次近距离的最小差值（防误识多人相似场景）。
-  static const double minDistanceMargin = 0.05;
+  static const double minDistanceMargin = 0.08;
 
   RecognitionResult recognize(List<double> embedding, List<RegisteredFace> gallery) {
     if (embedding.isEmpty || gallery.isEmpty) {

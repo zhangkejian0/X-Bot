@@ -50,6 +50,12 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
   DateTime _fpsTimestamp = DateTime.now();
   double _fps = 0;
 
+  // 时序平滑相关状态。
+  static const int _smoothWindowSize = 5;
+  final Map<int, List<RecognitionResult>> _identityHistory = {};
+  final Map<int, List<ExpressionResult>> _expressionHistory = {};
+  List<RecognitionResult> _smoothedIdentities = const [];
+
   /// 用于「等待首帧检测数据」的 Completer。
   Completer<void>? _firstFrameCompleter;
 
@@ -188,11 +194,32 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
         frame.imageSize != Size.zero) {
       _firstFrameCompleter?.complete();
     }
-    // 身份识别。
-    final identities = <RecognitionResult>[];
-    for (final face in frame.faces) {
-      identities.add(_recognizer.recognize(face.embedding, _store?.faces ?? const []));
+    // 逐帧识别。
+    final rawIdentities = <RecognitionResult>[];
+    for (var i = 0; i < frame.faces.length; i++) {
+      rawIdentities.add(
+        _recognizer.recognize(frame.faces[i].embedding, _store?.faces ?? const []),
+      );
     }
+    // 滑动窗口投票。
+    _pruneHistory(frame.faces.length);
+    for (var i = 0; i < rawIdentities.length; i++) {
+      _identityHistory.putIfAbsent(i, () => []);
+      final history = _identityHistory[i]!;
+      history.add(rawIdentities[i]);
+      if (history.length > _smoothWindowSize) history.removeAt(0);
+    }
+    // 表情也做平滑。
+    for (var i = 0; i < frame.faces.length; i++) {
+      _expressionHistory.putIfAbsent(i, () => []);
+      final history = _expressionHistory[i]!;
+      history.add(frame.faces[i].expression);
+      if (history.length > _smoothWindowSize) history.removeAt(0);
+    }
+    // 投票决定最终身份。
+    _smoothedIdentities = List.generate(frame.faces.length, (i) {
+      return _voteIdentity(_identityHistory[i] ?? const []);
+    });
     // FPS。
     _frameCount++;
     final now = DateTime.now();
@@ -204,10 +231,57 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     if (mounted) {
       setState(() {
         _frame = frame;
-        _identities = identities;
+        _identities = _smoothedIdentities;
         _errorMessage = null;
       });
     }
+  }
+
+  /// 多数投票：窗口内出现次数最多的身份胜出，票数不足半数则判定「未知」。
+  RecognitionResult _voteIdentity(List<RecognitionResult> history) {
+    if (history.isEmpty) return const RecognitionResult.unknown();
+    // 统计各身份出现次数及对应的最佳距离。
+    final counts = <String, int>{};
+    final bestDists = <String, double>{};
+    final bestConfs = <String, double>{};
+    for (final r in history) {
+      final key = r.isKnown ? r.name : '未知';
+      counts[key] = (counts[key] ?? 0) + 1;
+      if (r.isKnown) {
+        bestDists[key] = bestDists[key] != null
+            ? (bestDists[key]! < r.distance ? bestDists[key]! : r.distance)
+            : r.distance;
+        bestConfs[key] = bestConfs[key] != null
+            ? (bestConfs[key]! > r.confidence ? bestConfs[key]! : r.confidence)
+            : r.confidence;
+      }
+    }
+    // 找票数最高的。
+    String winner = '未知';
+    int maxVotes = 0;
+    counts.forEach((name, count) {
+      if (count > maxVotes) {
+        maxVotes = count;
+        winner = name;
+      }
+    });
+    // 不足半数 → 未知。
+    final threshold = (history.length * 0.6).ceil();
+    if (maxVotes < threshold || winner == '未知') {
+      return const RecognitionResult.unknown();
+    }
+    return RecognitionResult(
+      name: winner,
+      distance: bestDists[winner] ?? 0,
+      confidence: bestConfs[winner] ?? 0,
+      isKnown: true,
+    );
+  }
+
+  /// 清除已消失人脸的历史。
+  void _pruneHistory(int currentFaceCount) {
+    _identityHistory.removeWhere((key, _) => key >= currentFaceCount);
+    _expressionHistory.removeWhere((key, _) => key >= currentFaceCount);
   }
 
   Future<void> _registerCurrentFace() async {
