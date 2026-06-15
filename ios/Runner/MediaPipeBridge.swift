@@ -388,30 +388,40 @@ class MediaPipeBridge: NSObject {
   }
 
   /// Flutter CameraImage (YUV420) → UIImage。
-  /// 旋转后返回正立图像。
+  /// iOS 为双平面 NV12（Y + UV），Android 为三平面（Y/U/V）；均需按 bytesPerRow 解码。
   private func image(from args: [String: Any]) -> UIImage? {
-    guard let width = args["width"] as? Int,
-          let height = args["height"] as? Int,
-          let planes = args["planes"] as? [[String: Any]] else { return nil }
-    let rotation = args["rotationDegrees"] as? Int ?? 0
-    // YUV420 三平面 → 拼成 NV21 → 转 UIImage。iOS 上更常用 CV pixelbuffer，
-    // 但 Flutter 传入的是字节描述，这里用简化的 Y-only→灰度→RGB 近似处理
-    // 仅用于第一版联调；生产环境建议改用 camera 插件的 CVPixelBuffer 直传。
-    guard planes.count >= 3,
-          let yBytes = planes[0]["bytes"] as? FlutterStandardTypedData else { return nil }
-    // 为保证功能可用，这里用 Y 平面构造灰度图再转 RGB。
-    let yData = yBytes.data
-    var rgb = [UInt8](repeating: 128, count: width * height * 4)
-    yData.withUnsafeBytes { ptr in
-      let yPtr = ptr.bindMemory(to: UInt8.self)
-      for i in 0..<(width * height) {
-        let v = yPtr[i]
-        rgb[i * 4] = v
-        rgb[i * 4 + 1] = v
-        rgb[i * 4 + 2] = v
-        rgb[i * 4 + 3] = 255
-      }
+    guard let width = Self.intValue(args["width"]),
+          let height = Self.intValue(args["height"]),
+          let planes = args["planes"] as? [[String: Any]],
+          planes.count >= 2,
+          let yData = Self.planeData(planes[0]) else { return nil }
+
+    let rotation = Self.intValue(args["rotationDegrees"]) ?? 0
+    let mirror = args["mirror"] as? Bool ?? false
+    let yStride = Self.intValue(planes[0]["bytesPerRow"]) ?? width
+
+    var rgb = [UInt8](repeating: 255, count: width * height * 4)
+    if planes.count >= 3, let uData = Self.planeData(planes[1]), let vData = Self.planeData(planes[2]) {
+      let uvRowStride = Self.intValue(planes[1]["bytesPerRow"]) ?? width / 2
+      let uvPixelStride = Self.intValue(planes[1]["bytesPerPixel"]) ?? 1
+      Self.yuv420PlanarToRGBA(
+        y: yData, u: uData, v: vData,
+        width: width, height: height,
+        yStride: yStride, uvRowStride: uvRowStride, uvPixelStride: uvPixelStride,
+        out: &rgb
+      )
+    } else if let uvData = Self.planeData(planes[1]) {
+      let uvStride = Self.intValue(planes[1]["bytesPerRow"]) ?? width
+      Self.nv12ToRGBA(
+        y: yData, uv: uvData,
+        width: width, height: height,
+        yStride: yStride, uvStride: uvStride,
+        out: &rgb
+      )
+    } else {
+      return nil
     }
+
     let colorSpace = CGColorSpaceCreateDeviceRGB()
     guard let provider = CGDataProvider(data: Data(rgb) as CFData),
           let cgImage = CGImage(
@@ -421,11 +431,98 @@ class MediaPipeBridge: NSObject {
             bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
             provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent
           ) else { return nil }
+
     var img = UIImage(cgImage: cgImage)
     if rotation != 0 {
       img = img.rotated(by: Double(rotation)) ?? img
     }
+    if mirror {
+      img = img.mirroredHorizontally() ?? img
+    }
     return img
+  }
+
+  private static func intValue(_ value: Any?) -> Int? {
+    if let i = value as? Int { return i }
+    if let n = value as? NSNumber { return n.intValue }
+    return nil
+  }
+
+  private static func planeData(_ plane: [String: Any]) -> Data? {
+    guard let bytes = plane["bytes"] else { return nil }
+    if let typed = bytes as? FlutterStandardTypedData { return typed.data }
+    if let data = bytes as? Data { return data }
+    if let array = bytes as? [UInt8] { return Data(array) }
+    return nil
+  }
+
+  /// NV12（iOS 双平面）：Y + 交错 UV。
+  private static func nv12ToRGBA(
+    y: Data, uv: Data,
+    width: Int, height: Int,
+    yStride: Int, uvStride: Int,
+    out: inout [UInt8]
+  ) {
+    y.withUnsafeBytes { yRaw in
+      uv.withUnsafeBytes { uvRaw in
+        let yPtr = yRaw.bindMemory(to: UInt8.self)
+        let uvPtr = uvRaw.bindMemory(to: UInt8.self)
+        for row in 0..<height {
+          for col in 0..<width {
+            let yVal = Int(yPtr[row * yStride + col])
+            let uvRow = row / 2
+            let uvCol = (col / 2) * 2
+            let u = Int(uvPtr[uvRow * uvStride + uvCol]) - 128
+            let v = Int(uvPtr[uvRow * uvStride + uvCol + 1]) - 128
+            let i = (row * width + col) * 4
+            out[i] = clampYuv(yVal, u: u, v: v, channel: 0)
+            out[i + 1] = clampYuv(yVal, u: u, v: v, channel: 1)
+            out[i + 2] = clampYuv(yVal, u: u, v: v, channel: 2)
+          }
+        }
+      }
+    }
+  }
+
+  /// 三平面 YUV420（Android）：Y + 独立 U/V。
+  private static func yuv420PlanarToRGBA(
+    y: Data, u: Data, v: Data,
+    width: Int, height: Int,
+    yStride: Int, uvRowStride: Int, uvPixelStride: Int,
+    out: inout [UInt8]
+  ) {
+    y.withUnsafeBytes { yRaw in
+      u.withUnsafeBytes { uRaw in
+        v.withUnsafeBytes { vRaw in
+          let yPtr = yRaw.bindMemory(to: UInt8.self)
+          let uPtr = uRaw.bindMemory(to: UInt8.self)
+          let vPtr = vRaw.bindMemory(to: UInt8.self)
+          for row in 0..<height {
+            for col in 0..<width {
+              let yVal = Int(yPtr[row * yStride + col])
+              let uvRow = row / 2
+              let uvCol = col / 2
+              let u = Int(uPtr[uvRow * uvRowStride + uvCol * uvPixelStride]) - 128
+              let v = Int(vPtr[uvRow * uvRowStride + uvCol * uvPixelStride]) - 128
+              let i = (row * width + col) * 4
+              out[i] = clampYuv(yVal, u: u, v: v, channel: 0)
+              out[i + 1] = clampYuv(yVal, u: u, v: v, channel: 1)
+              out[i + 2] = clampYuv(yVal, u: u, v: v, channel: 2)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private static func clampYuv(_ y: Int, u: Int, v: Int, channel: Int) -> UInt8 {
+    let value: Int
+    switch channel {
+    case 0: value = y + Int((1.402 * Double(v)).rounded())
+    case 1: value = y - Int((0.344 * Double(u)).rounded()) - Int((0.714 * Double(v)).rounded())
+    default: value = y + Int((1.772 * Double(u)).rounded())
+    }
+    return UInt8(clamping: value)
   }
 }
 
@@ -434,12 +531,26 @@ class MediaPipeBridge: NSObject {
 extension UIImage {
   func rotated(by degrees: Double) -> UIImage? {
     let radians = degrees * .pi / 180
-    let size = self.size
-    UIGraphicsBeginImageContextWithOptions(size, true, self.scale)
+    var newSize = CGRect(origin: .zero, size: size)
+      .applying(CGAffineTransform(rotationAngle: radians)).integral.size
+    newSize.width = abs(newSize.width)
+    newSize.height = abs(newSize.height)
+    UIGraphicsBeginImageContextWithOptions(newSize, true, scale)
     guard let ctx = UIGraphicsGetCurrentContext() else { return nil }
-    ctx.translateBy(x: size.width / 2, y: size.height / 2)
+    ctx.translateBy(x: newSize.width / 2, y: newSize.height / 2)
     ctx.rotate(by: CGFloat(radians))
-    self.draw(in: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height))
+    draw(in: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height))
+    let result = UIGraphicsGetImageFromCurrentImageContext()
+    UIGraphicsEndImageContext()
+    return result
+  }
+
+  func mirroredHorizontally() -> UIImage? {
+    UIGraphicsBeginImageContextWithOptions(size, true, scale)
+    guard let ctx = UIGraphicsGetCurrentContext() else { return nil }
+    ctx.translateBy(x: size.width, y: 0)
+    ctx.scaleBy(x: -1, y: 1)
+    draw(in: CGRect(origin: .zero, size: size))
     let result = UIGraphicsGetImageFromCurrentImageContext()
     UIGraphicsEndImageContext()
     return result
