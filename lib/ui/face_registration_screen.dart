@@ -69,6 +69,10 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
   final Map<RegistrationStep, List<double>> _collectedEmbeddings = {};
   bool _isProcessing = false;
 
+  /// 第一次转头采集到的偏航方向符号（-1 / 1），用于要求第二次转向相反方向。
+  /// 不直接区分左右，避免前置摄像头镜像导致的 yaw 符号不确定问题。
+  double _firstSideSign = 0;
+
   // 动画控制器。
   late final AnimationController _pulseController; // 采集成功脉冲
   late final Animation<double> _pulseAnimation;
@@ -78,9 +82,9 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
   DateTime? _stepStartTime;
   static const Duration _stepTimeout = Duration(seconds: 20);
 
-  // 姿态阈值。
-  static const double _yawThreshold = 28.0;
-  static const double _frontYawThreshold = 14.0;
+  // 姿态阈值（度）。阈值放低，转头幅度无需太大即可触发。
+  static const double _yawThreshold = 18.0;
+  static const double _frontYawThreshold = 12.0;
 
   @override
   void initState() {
@@ -150,7 +154,9 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
   }
 
   void _checkPoseAndCollect() {
-    if (!_faceDetected || !_faceInCircle || _isProcessing) return;
+    // 转头时人脸会偏移出圆心，因此只有「正脸」步骤要求在圆框内，
+    // 侧脸步骤只要求检测到人脸即可，避免转头时被 _faceInCircle 拦截。
+    if (!_faceDetected || _isProcessing) return;
 
     final face = _currentFrame.faces.first;
     final yaw = face.headPose.yaw;
@@ -158,13 +164,20 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
     bool shouldCollect = false;
     switch (_step) {
       case RegistrationStep.front:
-        shouldCollect = yaw.abs() < _frontYawThreshold;
+        shouldCollect = _faceInCircle && yaw.abs() < _frontYawThreshold;
         break;
       case RegistrationStep.left:
-        shouldCollect = yaw < -_yawThreshold;
+        // 第一次转头：转向任意一侧超过阈值即可，记录方向符号。
+        if (yaw.abs() > _yawThreshold) {
+          _firstSideSign = yaw < 0 ? -1 : 1;
+          shouldCollect = true;
+        }
         break;
       case RegistrationStep.right:
-        shouldCollect = yaw > _yawThreshold;
+        // 第二次转头：必须转向与第一次相反的方向。
+        if (yaw.abs() > _yawThreshold && (yaw < 0 ? -1 : 1) != _firstSideSign) {
+          shouldCollect = true;
+        }
         break;
       default:
         break;
@@ -219,6 +232,7 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
       _step = RegistrationStep.front;
       _stepStartTime = DateTime.now();
       _collectedEmbeddings.clear();
+      _firstSideSign = 0;
     });
   }
 
@@ -228,6 +242,7 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
       _stepStartTime = null;
       _collectedEmbeddings.clear();
       _isProcessing = false;
+      _firstSideSign = 0;
     });
   }
 
@@ -299,9 +314,9 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
         if (!_faceInCircle) return '请正对屏幕并靠近一点';
         return '请正视前方，保持不动';
       case RegistrationStep.left:
-        return '请缓慢向左转头';
+        return '请缓慢转向一侧';
       case RegistrationStep.right:
-        return '请缓慢向右转头';
+        return '请缓慢转向另一侧';
       case RegistrationStep.complete:
         return '面部录入完成';
       case RegistrationStep.failed:
@@ -406,36 +421,47 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
   Widget _buildScanPane() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final circle = min(
-          constraints.maxHeight * 0.60,
-          min(constraints.maxWidth * 0.80, 300.0),
+        // 预留文字 + 按钮区域的高度，圆框用「剩余高度」与宽度共同约束，
+        // 避免在矮屏横屏下底部溢出。
+        const reserved = 176.0;
+        final available = constraints.maxHeight - reserved;
+        final circle = max(
+          120.0,
+          min(
+            min(available, constraints.maxWidth * 0.82),
+            300.0,
+          ),
         );
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _buildFaceCircle(circle),
-              const SizedBox(height: 28),
+              const SizedBox(height: 20),
               Text(
                 _instructionTitle,
                 textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 20,
+                  fontSize: 19,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               SizedBox(
                 width: 280,
                 child: Text(
                   _instructionSubtitle,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: _label, fontSize: 13, height: 1.4),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: _label, fontSize: 13, height: 1.35),
                 ),
               ),
-              const SizedBox(height: 22),
+              const SizedBox(height: 16),
               _buildScanAction(),
             ],
           ),
@@ -529,12 +555,13 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
         ),
       );
     }
+    // 与主预览页保持一致：直接用 previewSize（不交换宽高），由 FittedBox
+    // cover 按真实宽高比缩放并裁切，避免画面被拉伸变形。
     return FittedBox(
       fit: BoxFit.cover,
       alignment: Alignment.center,
-      child: SizedBox(
-        width: controller.value.previewSize!.height,
-        height: controller.value.previewSize!.width,
+      child: SizedBox.fromSize(
+        size: controller.value.previewSize,
         child: CameraPreview(controller),
       ),
     );

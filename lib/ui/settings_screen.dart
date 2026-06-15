@@ -1,11 +1,11 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../camera/camera_controller_service.dart';
 import '../detection/models.dart';
 import '../recognition/face_recognition_store.dart';
-import '../recognition/face_recognizer.dart';
 import 'face_registration_screen.dart';
 
-/// 设置页面：包含人脸识别、摄像头、检测、语言等设置。
+/// 设置页面（iOS 风格）：人脸识别、摄像头、检测、界面等设置。
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
@@ -27,6 +27,19 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  // ===== iOS 调色板 =====
+  static const _bg = Color(0xFF000000);
+  static const _card = Color(0xFF1C1C1E);
+  static const _separator = Color(0xFF38383A);
+  static const _label = Color(0xFF8E8E93);
+  static const _blue = Color(0xFF0A84FF);
+  static const _green = Color(0xFF30D158);
+  static const _orange = Color(0xFFFF9F0A);
+  static const _purple = Color(0xFFBF5AF2);
+  static const _gray = Color(0xFF8E8E93);
+  static const _red = Color(0xFFFF453A);
+  static const _teal = Color(0xFF64D2FF);
+
   // 检测设置状态。
   bool _showOverlay = true;
   bool _showSkeleton = true;
@@ -35,219 +48,313 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: const Text('设置'),
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: ListView(
-        children: [
-          // 人脸识别设置。
-          _buildSectionHeader('人脸识别'),
-          _buildFaceRecognitionSection(),
-          
-          const Divider(color: Colors.grey, height: 1),
-          
-          // 摄像头设置。
-          _buildSectionHeader('摄像头'),
-          _buildCameraSection(),
-          
-          const Divider(color: Colors.grey, height: 1),
-          
-          // 检测设置。
-          _buildSectionHeader('检测'),
-          _buildDetectionSection(),
-          
-          const Divider(color: Colors.grey, height: 1),
-          
-          // 界面设置。
-          _buildSectionHeader('界面'),
-          _buildInterfaceSection(),
-          
-          const SizedBox(height: 40),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: Colors.tealAccent,
-          fontSize: 14,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFaceRecognitionSection() {
-    final faces = widget.store.faces;
-    return Column(
-      children: [
-        // 认识我（人脸录入）。
-        ListTile(
-          leading: const Icon(Icons.face, color: Colors.white),
-          title: const Text('认识我', style: TextStyle(color: Colors.white)),
-          subtitle: Text(
-            widget.recognitionReady ? '让 AI 记住你的样子' : '模型加载中...',
-            style: TextStyle(color: Colors.grey[400], fontSize: 12),
-          ),
-          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-          onTap: widget.recognitionReady ? _registerFace : null,
-        ),
-        
-        // 我的朋友（已录入人脸列表）。
-        if (faces.isNotEmpty) ...[
-          const Divider(color: Colors.grey, height: 1, indent: 56),
-          ListTile(
-            leading: const Icon(Icons.people, color: Colors.white),
-            title: const Text('我的朋友', style: TextStyle(color: Colors.white)),
-            subtitle: Text(
-              '已认识 ${faces.length} 位朋友',
-              style: TextStyle(color: Colors.grey[400], fontSize: 12),
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildTopBar(),
+            Expanded(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 640),
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+                    children: [
+                      _section('人脸识别', _faceRecognitionRows()),
+                      const SizedBox(height: 22),
+                      _section('摄像头', _cameraRows()),
+                      const SizedBox(height: 22),
+                      _section('检测', _detectionRows()),
+                      const SizedBox(height: 22),
+                      _section('界面', _interfaceRows()),
+                    ],
+                  ),
+                ),
+              ),
             ),
-            trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-            onTap: _showFriendsList,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopBar() {
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        children: [
+          CupertinoButton(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            onPressed: () => Navigator.pop(context),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(CupertinoIcons.back, color: _blue, size: 22),
+                Text('返回', style: TextStyle(color: _blue, fontSize: 17)),
+              ],
+            ),
+          ),
+          const Expanded(
+            child: Center(
+              child: Text(
+                '设置',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 96),
+        ],
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // 各分组
+  // ===========================================================================
+
+  List<Widget> _faceRecognitionRows() {
+    final faces = widget.store.faces;
+    return [
+      _navRow(
+        icon: CupertinoIcons.person_crop_circle,
+        iconColor: _blue,
+        title: '认识我',
+        value: widget.recognitionReady ? null : '模型加载中',
+        onTap: widget.recognitionReady ? _registerFace : null,
+      ),
+      if (faces.isNotEmpty)
+        _navRow(
+          icon: CupertinoIcons.person_2_fill,
+          iconColor: _green,
+          title: '我的朋友',
+          value: '${faces.length} 位',
+          onTap: _showFriendsList,
+        ),
+    ];
+  }
+
+  List<Widget> _cameraRows() {
+    return [
+      _navRow(
+        icon: CupertinoIcons.switch_camera,
+        iconColor: _orange,
+        title: '切换摄像头',
+        value: '前置',
+        onTap: () => _toast('摄像头切换功能开发中'),
+      ),
+      _navRow(
+        icon: CupertinoIcons.wand_stars,
+        iconColor: _purple,
+        title: '分辨率',
+        value: '720p',
+        onTap: () => _toast('分辨率设置功能开发中'),
+      ),
+    ];
+  }
+
+  List<Widget> _detectionRows() {
+    return [
+      _switchRow(
+        icon: CupertinoIcons.square_stack_3d_up,
+        iconColor: _teal,
+        title: '显示检测叠加层',
+        value: _showOverlay,
+        onChanged: (v) => setState(() => _showOverlay = v),
+      ),
+      _switchRow(
+        icon: CupertinoIcons.person_crop_rectangle,
+        iconColor: _green,
+        title: '显示骨架',
+        value: _showSkeleton,
+        onChanged: (v) => setState(() => _showSkeleton = v),
+      ),
+      _sliderRow(
+        icon: CupertinoIcons.slider_horizontal_3,
+        iconColor: _blue,
+        title: '检测灵敏度',
+        value: _detectionConfidence,
+        onChanged: (v) => setState(() => _detectionConfidence = v),
+      ),
+    ];
+  }
+
+  List<Widget> _interfaceRows() {
+    return [
+      _navRow(
+        icon: CupertinoIcons.globe,
+        iconColor: _blue,
+        title: '语言',
+        value: '中文',
+        onTap: () => _toast('语言切换功能开发中'),
+      ),
+      _navRow(
+        icon: CupertinoIcons.info_circle,
+        iconColor: _gray,
+        title: '关于',
+        value: 'v1.0.0',
+        onTap: _showAbout,
+      ),
+    ];
+  }
+
+  // ===========================================================================
+  // iOS 风格通用组件
+  // ===========================================================================
+
+  Widget _section(String title, List<Widget> rows) {
+    final children = <Widget>[];
+    for (var i = 0; i < rows.length; i++) {
+      children.add(rows[i]);
+      if (i != rows.length - 1) {
+        children.add(const Padding(
+          padding: EdgeInsets.only(left: 56),
+          child: Divider(height: 0.5, thickness: 0.5, color: _separator),
+        ));
+      }
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 0, 0, 8),
+          child: Text(
+            title.toUpperCase(),
+            style: const TextStyle(
+              color: _label,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: _card,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(children: children),
+        ),
+      ],
+    );
+  }
+
+  Widget _iconBadge(IconData icon, Color color) {
+    return Container(
+      width: 29,
+      height: 29,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Icon(icon, color: Colors.white, size: 18),
+    );
+  }
+
+  Widget _navRow({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    String? value,
+    VoidCallback? onTap,
+  }) {
+    final enabled = onTap != null;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        child: Row(
+          children: [
+            _iconBadge(icon, iconColor),
+            const SizedBox(width: 13),
+            Text(
+              title,
+              style: TextStyle(
+                color: enabled ? Colors.white : _label,
+                fontSize: 16,
+              ),
+            ),
+            const Spacer(),
+            if (value != null)
+              Text(value, style: const TextStyle(color: _label, fontSize: 16)),
+            const SizedBox(width: 6),
+            const Icon(CupertinoIcons.right_chevron, color: _label, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _switchRow({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      child: Row(
+        children: [
+          _iconBadge(icon, iconColor),
+          const SizedBox(width: 13),
+          Text(title, style: const TextStyle(color: Colors.white, fontSize: 16)),
+          const Spacer(),
+          CupertinoSwitch(
+            value: value,
+            activeTrackColor: _green,
+            onChanged: onChanged,
           ),
         ],
-      ],
+      ),
     );
   }
 
-  Widget _buildCameraSection() {
-    return Column(
-      children: [
-        ListTile(
-          leading: const Icon(Icons.cameraswitch, color: Colors.white),
-          title: const Text('切换摄像头', style: TextStyle(color: Colors.white)),
-          subtitle: Text(
-            '当前：前置摄像头',
-            style: TextStyle(color: Colors.grey[400], fontSize: 12),
+  Widget _sliderRow({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required double value,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      child: Row(
+        children: [
+          _iconBadge(icon, iconColor),
+          const SizedBox(width: 13),
+          Text(title, style: const TextStyle(color: Colors.white, fontSize: 16)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: CupertinoSlider(
+              value: value,
+              min: 0.1,
+              max: 0.9,
+              divisions: 8,
+              activeColor: _blue,
+              onChanged: onChanged,
+            ),
           ),
-          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('摄像头切换功能开发中...')),
-            );
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.high_quality, color: Colors.white),
-          title: const Text('分辨率', style: TextStyle(color: Colors.white)),
-          subtitle: Text(
-            '当前：720p',
-            style: TextStyle(color: Colors.grey[400], fontSize: 12),
+          SizedBox(
+            width: 36,
+            child: Text(
+              value.toStringAsFixed(1),
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: _label, fontSize: 14),
+            ),
           ),
-          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('分辨率设置功能开发中...')),
-            );
-          },
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildDetectionSection() {
-    return Column(
-      children: [
-        // 显示检测叠加层。
-        SwitchListTile(
-          secondary: const Icon(Icons.layers, color: Colors.white),
-          title: const Text('显示检测叠加层', style: TextStyle(color: Colors.white)),
-          subtitle: Text(
-            '在画面上显示检测结果',
-            style: TextStyle(color: Colors.grey[400], fontSize: 12),
-          ),
-          value: _showOverlay,
-          activeColor: Colors.tealAccent,
-          onChanged: (value) {
-            setState(() => _showOverlay = value);
-          },
-        ),
-        
-        // 显示骨架。
-        SwitchListTile(
-          secondary: const Icon(Icons.accessibility, color: Colors.white),
-          title: const Text('显示骨架', style: TextStyle(color: Colors.white)),
-          subtitle: Text(
-            '显示手势和姿势骨架',
-            style: TextStyle(color: Colors.grey[400], fontSize: 12),
-          ),
-          value: _showSkeleton,
-          activeColor: Colors.tealAccent,
-          onChanged: (value) {
-            setState(() => _showSkeleton = value);
-          },
-        ),
-        
-        // 检测灵敏度。
-        ListTile(
-          leading: const Icon(Icons.tune, color: Colors.white),
-          title: const Text('检测灵敏度', style: TextStyle(color: Colors.white)),
-          subtitle: Slider(
-            value: _detectionConfidence,
-            min: 0.1,
-            max: 0.9,
-            divisions: 8,
-            activeColor: Colors.tealAccent,
-            inactiveColor: Colors.grey[700],
-            onChanged: (value) {
-              setState(() => _detectionConfidence = value);
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildInterfaceSection() {
-    return Column(
-      children: [
-        ListTile(
-          leading: const Icon(Icons.language, color: Colors.white),
-          title: const Text('语言', style: TextStyle(color: Colors.white)),
-          subtitle: Text(
-            '当前：中文',
-            style: TextStyle(color: Colors.grey[400], fontSize: 12),
-          ),
-          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('语言切换功能开发中...')),
-            );
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.info_outline, color: Colors.white),
-          title: const Text('关于', style: TextStyle(color: Colors.white)),
-          subtitle: Text(
-            'X-Bot v1.0.0',
-            style: TextStyle(color: Colors.grey[400], fontSize: 12),
-          ),
-          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-          onTap: () {
-            showAboutDialog(
-              context: context,
-              applicationName: 'X-Bot',
-              applicationVersion: '1.0.0',
-              applicationLegalese: '© 2024 X-Bot Team',
-            );
-          },
-        ),
-      ],
-    );
-  }
+  // ===========================================================================
+  // 业务逻辑
+  // ===========================================================================
 
   /// 人脸录入流程 - 跳转到人脸录入页面。
   Future<void> _registerFace() async {
@@ -261,128 +368,166 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
-
-    // 如果录入成功，刷新列表。
-    if (result == true) {
-      setState(() {});
-    }
+    if (result == true) setState(() {});
   }
 
-  /// 弹出姓名输入对话框。
-  Future<String?> _promptName() {
-    final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('想让我怎么称呼你？'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: '你的名字或昵称',
-          ),
-          onSubmitted: (v) => Navigator.of(ctx).pop(v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(controller.text),
-            child: const Text('记住我'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 显示已录入的朋友列表。
+  /// 显示已录入的朋友列表（iOS 底部弹层）。
   void _showFriendsList() {
-    final faces = widget.store.faces;
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.grey[900],
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 标题栏。
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  '我的朋友',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  '${faces.length} 位',
-                  style: TextStyle(color: Colors.grey[400], fontSize: 14),
-                ),
-              ],
-            ),
-          ),
-          const Divider(color: Colors.grey, height: 1),
-          
-          // 朋友列表。
-          Flexible(
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: faces.length,
-              itemBuilder: (ctx, index) {
-                final face = faces[index];
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.tealAccent,
-                    child: Text(
-                      face.name.isNotEmpty ? face.name[0] : '?',
-                      style: const TextStyle(color: Colors.black),
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final faces = widget.store.faces;
+            return Container(
+              margin: const EdgeInsets.all(10),
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+              ),
+              decoration: BoxDecoration(
+                color: _card,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 顶部抓手。
+                  Container(
+                    width: 36,
+                    height: 5,
+                    margin: const EdgeInsets.only(top: 8, bottom: 4),
+                    decoration: BoxDecoration(
+                      color: _separator,
+                      borderRadius: BorderRadius.circular(3),
                     ),
                   ),
-                  title: Text(face.name, style: const TextStyle(color: Colors.white)),
-                  subtitle: Text(
-                    'ID: ${face.id}',
-                    style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          '我的朋友',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text('${faces.length} 位',
+                            style: const TextStyle(color: _label, fontSize: 14)),
+                      ],
+                    ),
                   ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _deleteFriend(face.id, face.name),
+                  const Divider(height: 0.5, thickness: 0.5, color: _separator),
+                  Flexible(
+                    child: faces.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 48),
+                            child: Text('还没有认识的朋友',
+                                style: TextStyle(color: _label, fontSize: 15)),
+                          )
+                        : ListView.separated(
+                            shrinkWrap: true,
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            itemCount: faces.length,
+                            separatorBuilder: (context, index) => const Padding(
+                              padding: EdgeInsets.only(left: 70),
+                              child: Divider(
+                                  height: 0.5,
+                                  thickness: 0.5,
+                                  color: _separator),
+                            ),
+                            itemBuilder: (ctx, index) {
+                              final face = faces[index];
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 18, vertical: 8),
+                                child: Row(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 20,
+                                      backgroundColor: _blue,
+                                      child: Text(
+                                        face.name.isNotEmpty
+                                            ? face.name[0]
+                                            : '?',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(face.name,
+                                              style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 16)),
+                                          if (face.relationship != null)
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.only(top: 2),
+                                              child: Text(
+                                                face.relationship!,
+                                                style: const TextStyle(
+                                                    color: _label,
+                                                    fontSize: 12),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    CupertinoButton(
+                                      padding: EdgeInsets.zero,
+                                      onPressed: () async {
+                                        await _deleteFriend(
+                                            face.id, face.name);
+                                        setSheetState(() {});
+                                      },
+                                      child: const Icon(
+                                        CupertinoIcons.delete,
+                                        color: _red,
+                                        size: 22,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
                   ),
-                );
-              },
-            ),
-          ),
-          
-          // 底部安全区域。
-          SizedBox(height: MediaQuery.of(ctx).padding.bottom),
-        ],
-      ),
+                  SizedBox(height: MediaQuery.of(ctx).padding.bottom + 8),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
-  /// 删除朋友。
+  /// 删除朋友（iOS 确认弹窗）。
   Future<void> _deleteFriend(String id, String name) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showCupertinoDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => CupertinoAlertDialog(
         title: const Text('确认删除'),
         content: Text('确定要忘记 $name 吗？'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(ctx, false),
             child: const Text('取消'),
           ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(ctx, true),
             child: const Text('忘记'),
           ),
         ],
@@ -391,16 +536,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (confirmed == true) {
       await widget.store.remove(id);
-      _showSnackBar('已经忘记 $name 了');
-      setState(() {}); // 刷新列表。
-      if (mounted) Navigator.pop(context); // 关闭底部弹窗。
+      if (mounted) setState(() {});
+      _toast('已经忘记 $name 了');
     }
   }
 
-  void _showSnackBar(String message) {
+  void _showAbout() {
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (ctx) => CupertinoAlertDialog(
+        title: const Text('X-Bot'),
+        content: const Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: Text('版本 1.0.0\n© 2024 X-Bot Team'),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('好'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _toast(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF2C2C2E),
+        duration: const Duration(seconds: 2),
+      ),
     );
   }
 }
