@@ -40,6 +40,9 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
   bool _recognitionReady = false;
   String _recognitionError = '';
 
+  // 调试面板开关。
+  bool _showDebugPanel = false;
+
   // FPS 统计。
   int _frameCount = 0;
   DateTime _fpsTimestamp = DateTime.now();
@@ -227,6 +230,25 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  Widget _buildActionButton(IconData icon, String label) {
+    return GestureDetector(
+      onTap: () {
+        _toast('$label 功能开发中...');
+      },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 28),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // 加载阶段：显示加载页。
@@ -286,22 +308,46 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                   ),
                 ),
 
-              // 3. 调试面板（右上角）。
+              // 3. 调试面板（左上角）+ 开关。
               Positioned(
                 top: 0,
-                right: 0,
+                left: 0,
                 child: SafeArea(
-                  child: DebugPanel(
-                    frame: _frame,
-                    identities: _identities,
-                    fps: _fps,
-                    galleryCount: _store?.faces.length ?? 0,
-                    onRegister: _registerCurrentFace,
-                    previewSize: (ctrl != null && ctrl.value.isInitialized)
-                        ? ctrl.value.previewSize
-                        : null,
-                    recognitionReady: _recognitionReady,
-                    recognitionError: _recognitionError,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 调试开关按钮。
+                      GestureDetector(
+                        onTap: () => setState(() => _showDebugPanel = !_showDebugPanel),
+                        child: Container(
+                          margin: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            _showDebugPanel ? Icons.bug_report : Icons.bug_report_outlined,
+                            color: _showDebugPanel ? Colors.tealAccent : Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                      // 调试面板（可折叠）。
+                      if (_showDebugPanel)
+                        DebugPanel(
+                          frame: _frame,
+                          identities: _identities,
+                          fps: _fps,
+                          galleryCount: _store?.faces.length ?? 0,
+                          onRegister: _registerCurrentFace,
+                          previewSize: (ctrl != null && ctrl.value.isInitialized)
+                              ? ctrl.value.previewSize
+                              : null,
+                          recognitionReady: _recognitionReady,
+                          recognitionError: _recognitionError,
+                        ),
+                    ],
                   ),
                 ),
               ),
@@ -329,6 +375,34 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                     ),
                   ),
                 ),
+
+              // 5. 右侧悬浮操作栏。
+              Positioned(
+                right: 16,
+                top: 0,
+                bottom: 0,
+                child: SafeArea(
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildActionButton(Icons.chat_bubble_outline, 'AI对话'),
+                          const SizedBox(height: 24),
+                          _buildActionButton(Icons.trending_up, '成长'),
+                          const SizedBox(height: 24),
+                          _buildActionButton(Icons.settings_outlined, '设置'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ],
           );
         },
