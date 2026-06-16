@@ -41,12 +41,14 @@ class MediaPipeBridge: NSObject {
           return
         }
         self.queue.async {
-          do {
-            let payload = try self.detectAll(args: args)
-            DispatchQueue.main.async { result(payload) }
-          } catch {
-            DispatchQueue.main.async {
-              result(FlutterError(code: "DETECT_ERROR", message: "\(error)", details: nil))
+          autoreleasepool {
+            do {
+              let payload = try self.detectAll(args: args)
+              DispatchQueue.main.async { result(payload) }
+            } catch {
+              DispatchQueue.main.async {
+                result(FlutterError(code: "DETECT_ERROR", message: "\(error)", details: nil))
+              }
             }
           }
         }
@@ -74,7 +76,7 @@ class MediaPipeBridge: NSObject {
     let options = FaceLandmarkerOptions()
     options.baseOptions.modelAssetPath = path
     options.runningMode = .image
-    options.numFaces = 4
+    options.numFaces = 1
     options.outputFaceBlendshapes = true
     options.outputFacialTransformationMatrixes = true
     faceLandmarker = try? FaceLandmarker(options: options)
@@ -87,7 +89,7 @@ class MediaPipeBridge: NSObject {
     let options = GestureRecognizerOptions()
     options.baseOptions.modelAssetPath = path
     options.runningMode = .image
-    options.numHands = 4
+    options.numHands = 2
     gestureRecognizer = try? GestureRecognizer(options: options)
     return gestureRecognizer
   }
@@ -131,7 +133,7 @@ class MediaPipeBridge: NSObject {
   // MARK: - 主流程
 
   private func detectAll(args: [String: Any]) throws -> [String: Any] {
-    guard let image = image(from: args) else {
+    guard let image = autoreleasepool(invoking: { image(from: args) }) else {
       throw NSError(domain: "MediaPipeBridge", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法解码相机图像"])
     }
     let width = Int(image.size.width)
@@ -172,13 +174,11 @@ class MediaPipeBridge: NSObject {
     for (i, landmarks) in result.faceLandmarks.enumerated() {
       if landmarks.isEmpty { continue }
       var minX: Float = 1, minY: Float = 1, maxX: Float = 0, maxY: Float = 0
-      var landmarkMaps: [[String: Float]] = []
       for lm in landmarks {
         let x = lm.x
         let y = lm.y
         minX = min(minX, x); minY = min(minY, y)
         maxX = max(maxX, x); maxY = max(maxY, y)
-        landmarkMaps.append(["x": x, "y": y])
       }
       let bbox: [String: Float] = [
         "x": max(0, minX), "y": max(0, minY),
@@ -205,7 +205,7 @@ class MediaPipeBridge: NSObject {
       maps.append([
         "boundingBox": bbox,
         "blendshapes": blendMap,
-        "landmarks": landmarkMaps,
+        "landmarks": [] as [[String: Float]],
         "embedding": embedding,
         "headPose": headPose
       ])
@@ -256,7 +256,7 @@ class MediaPipeBridge: NSObject {
   private func recognizeFace(image: UIImage, landmarks: [NormalizedLandmark]) -> [Double] {
     guard let interp = recognizerInterpreter else { return [] }
     guard landmarks.count > 362 else { return [] }
-    guard let aligned = alignAndCrop(image: image, landmarks: landmarks) else { return [] }
+    guard let aligned = autoreleasepool(invoking: { alignAndCrop(image: image, landmarks: landmarks) }) else { return [] }
 
     // 112x112x3 float32，归一化到 [-1,1]。
     let size = 112

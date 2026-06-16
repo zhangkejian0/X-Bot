@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import '../camera/camera_controller_service.dart';
 import '../detection/detection_bridge.dart';
+import '../detection/expression_rules.dart';
 import '../detection/models.dart';
 import '../recognition/face_recognition_store.dart';
 import '../recognition/face_recognizer.dart';
@@ -406,7 +407,9 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                     fit: BoxFit.cover,
                     child: SizedBox.fromSize(
                       size: layoutSize,
-                      child: CameraPreview(ctrl),
+                      // iOS 自定义 FittedBox 布局下用 buildPreview，避免 CameraPreview
+                      // 内部 AspectRatio 与横屏纹理方向冲突。
+                      child: Platform.isIOS ? ctrl.buildPreview() : CameraPreview(ctrl),
                     ),
                   ),
                 )

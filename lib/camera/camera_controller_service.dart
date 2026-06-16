@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -36,6 +37,7 @@ class CameraControllerService {
   bool _isDetecting = false;
   DateTime _lastDetectionTime = DateTime.fromMillisecondsSinceEpoch(0);
   StreamSubscription<CameraImage>? _streamSub;
+  DeviceOrientation? _lastLockedOrientation;
 
   /// 最新一帧检测结果，供 UI 读取。
   DetectionFrame latest = DetectionFrame.empty;
@@ -75,18 +77,52 @@ class CameraControllerService {
 
     _controller = CameraController(
       _description!,
-      ResolutionPreset.medium,
+      ResolutionPreset.low,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
     );
 
     await _controller!.initialize();
+    await _lockLandscapeCaptureOrientation();
+    _controller!.addListener(_onCameraValueChanged);
     await _controller!.startImageStream(
       (image) => _process(image, onFrame: onFrame, onError: onError),
     );
 
     // 运行期间保持屏幕常亮。
     WakelockPlus.enable();
+  }
+
+  /// 横屏 App：iOS 初始化时 deviceOrientation 常为竖屏，必须显式锁定横屏，
+  /// 否则预览与检测帧都会以竖屏方向输出。
+  Future<void> _lockLandscapeCaptureOrientation() async {
+    if (!Platform.isIOS) return;
+    final ctrl = _controller;
+    if (ctrl == null || !ctrl.value.isInitialized) return;
+
+    var orient = ctrl.value.deviceOrientation;
+    if (orient != DeviceOrientation.landscapeLeft &&
+        orient != DeviceOrientation.landscapeRight) {
+      orient = DeviceOrientation.landscapeLeft;
+    }
+    await ctrl.lockCaptureOrientation(orient);
+    _lastLockedOrientation = orient;
+  }
+
+  void _onCameraValueChanged() {
+    if (!Platform.isIOS) return;
+    final ctrl = _controller;
+    if (ctrl == null || !ctrl.value.isInitialized) return;
+
+    final orient = ctrl.value.deviceOrientation;
+    if (orient != DeviceOrientation.landscapeLeft &&
+        orient != DeviceOrientation.landscapeRight) {
+      return;
+    }
+    if (_lastLockedOrientation == orient) return;
+
+    _lastLockedOrientation = orient;
+    ctrl.lockCaptureOrientation(orient);
   }
 
   Future<void> _process(
@@ -102,20 +138,27 @@ class CameraControllerService {
     _lastDetectionTime = now;
 
     try {
-      final deviceOrient =
-          _controller?.value.deviceOrientation ?? DeviceOrientation.landscapeLeft;
-      final deviceDeg = _deviceOrientationDegrees(deviceOrient);
-      final sensorOrient = _description?.sensorOrientation ?? 0;
       final isFront = isFrontCamera;
-      // 后摄：rotation = (sensorOrient - deviceDeg + 360) % 360
-      // 前摄：镜像导致方向相反，rotation = (sensorOrient + deviceDeg) % 360
-      final rotationDegrees = isFront
-          ? (sensorOrient + deviceDeg) % 360
-          : (sensorOrient - deviceDeg + 360) % 360;
+      // Android 取流为传感器原始方向，需手动旋转/镜像；iOS 取流已由原生层校正。
+      final int rotationDegrees;
+      final bool mirror;
+      if (Platform.isIOS) {
+        rotationDegrees = 0;
+        mirror = false;
+      } else {
+        final deviceOrient =
+            _controller?.value.deviceOrientation ?? DeviceOrientation.landscapeLeft;
+        final deviceDeg = _deviceOrientationDegrees(deviceOrient);
+        final sensorOrient = _description?.sensorOrientation ?? 0;
+        rotationDegrees = isFront
+            ? (sensorOrient + deviceDeg) % 360
+            : (sensorOrient - deviceDeg + 360) % 360;
+        mirror = isFront;
+      }
       latest = await _bridge.detect(
         image,
         rotationDegrees: rotationDegrees,
-        mirror: isFront, // 前摄镜像，使检测图像与预览一致。
+        mirror: mirror,
       );
       onFrame();
       onFrameCallback?.call();
@@ -142,11 +185,13 @@ class CameraControllerService {
     );
     _controller = CameraController(
       _description!,
-      ResolutionPreset.medium,
+      ResolutionPreset.low,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
     );
     await _controller!.initialize();
+    await _lockLandscapeCaptureOrientation();
+    _controller!.addListener(_onCameraValueChanged);
     await _controller!.startImageStream(
       (image) => _process(image, onFrame: onFrame, onError: onError),
     );
@@ -157,7 +202,9 @@ class CameraControllerService {
     _streamSub = null;
     final ctrl = _controller;
     _controller = null;
+    _lastLockedOrientation = null;
     if (ctrl == null) return;
+    ctrl.removeListener(_onCameraValueChanged);
     try {
       if (ctrl.value.isInitialized) {
         if (ctrl.value.isStreamingImages) {

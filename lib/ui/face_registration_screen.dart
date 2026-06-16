@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 import 'package:camera/camera.dart';
 import 'package:flutter/cupertino.dart';
@@ -634,7 +635,7 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen>
       alignment: Alignment.center,
       child: SizedBox.fromSize(
         size: layoutSize != Size.zero ? layoutSize : controller.value.previewSize,
-        child: CameraPreview(controller),
+        child: Platform.isIOS ? controller.buildPreview() : CameraPreview(controller),
       ),
     );
   }
